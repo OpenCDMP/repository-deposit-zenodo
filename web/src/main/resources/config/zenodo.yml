@@ -1,0 +1,25 @@
+zenodo:
+  organizationReferenceCode: "organisations"
+  grantReferenceCode: "grants"
+  funderReferenceCode: "funders"
+  researcherReferenceCode: "researchers"
+  licenceReferenceCode: "licenses"
+  projectReferenceCode: "projects"
+  datasetReferenceCode: "datasets"
+  publicationReferenceCode: "publications"
+  openaireGrantSourceCode: "openaire"
+  orcidResearcherSourceCode: "ORCID"
+  maxInMemorySizeInBytes: 6554000
+  depositConfiguration:
+    deposit-type: 2
+    repository-id: zenodo
+    access-token: ${ZENODO_ACCESS_TOKEN}
+    repository-url:  ${ZENODO_URL}
+    repository-authorization-url: ${ZENODO_AUTHORIZATION_URL}
+    repository-record-url: ${ZENODO_RECORD_URL}
+    repository-access-token-url: ${ZENODO_ACCESS_TOKEN_URL}
+    repository-client-id: ${ZENODO_CLIENT_ID}
+    repository-client-secret: ${ZENODO_CLIENT_SECRET}
+    redirect-uri: ${REDIRECT_URL}
+    has-logo: true
+    useSharedStorage: false
