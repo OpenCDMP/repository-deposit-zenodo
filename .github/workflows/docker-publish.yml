@@ -31,6 +31,9 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: opencdmp/repository-deposit-zenodo
+          tags: |
+            # minimal
+            type=semver,pattern={{ github.event.inputs.releaseversion }}
 
       - name: Build and push Docker image
         id: push
