@@ -1,11 +1,9 @@
 name: Docker Image CI
 
 on:
-  workflow_dispatch:
-    inputs:
-      releaseversion:
-        description: 'Release version'
-        required: true
+  push:
+    tags:
+      - '*'
 
 jobs:
   push_to_registry:
@@ -26,6 +24,14 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
+      - name: Extract metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: opencdmp/repository-deposit-zenodo
+          tags: |
+            type=semver,pattern={{version}}
+          
       - name: Build and push Docker image
         id: push
         uses: docker/build-push-action@v6
@@ -33,4 +39,5 @@ jobs:
           context: .
           file: ./Dockerfile
           push: true
-          tags: ${{ github.event.inputs.releaseversion }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
