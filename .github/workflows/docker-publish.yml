@@ -26,15 +26,6 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Extract metadata (tags, labels) for Docker
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: opencdmp/repository-deposit-zenodo
-          tags: |
-            # minimal
-            type=semver,pattern={{ github.event.inputs.releaseversion }}
-
       - name: Build and push Docker image
         id: push
         uses: docker/build-push-action@v6
@@ -42,5 +33,4 @@ jobs:
           context: .
           file: ./Dockerfile
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: ${{ github.event.inputs.releaseversion }}
