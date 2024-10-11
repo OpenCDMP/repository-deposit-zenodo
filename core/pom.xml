@@ -5,13 +5,13 @@
     <parent>
         <groupId>org.opencdmp</groupId>
         <artifactId>repository-deposit-parent</artifactId>
-        <version>${revision}</version>
         <relativePath>../pom.xml</relativePath>
+        <version>1.0.0-SNAPSHOT</version>
     </parent>
 
     <artifactId>repository-deposit-zenodo</artifactId>
-    <version>${revision}</version>
     <packaging>jar</packaging>
+    <version>1.0.0-SNAPSHOT</version>
 
     <name>OpenCDMP Repository Deposit Zenodo</name>
     <description>repository-deposit-zenodo is an implementation of the repository-deposit-base package that enables the deposition of OpenCDMP Plans into the Zenodo repository.</description>
@@ -38,7 +38,6 @@
     </scm>
 
     <properties>
-        <revision>1.0.0-SNAPSHOT</revision>
         <maven.compiler.source>21</maven.compiler.source>
         <maven.compiler.target>21</maven.compiler.target>
         <maven.compiler.release>21</maven.compiler.release>
