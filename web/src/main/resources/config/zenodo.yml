@@ -1,25 +1,29 @@
 zenodo:
-  organizationReferenceCode: "organisations"
-  grantReferenceCode: "grants"
-  funderReferenceCode: "funders"
-  researcherReferenceCode: "researchers"
-  licenceReferenceCode: "licenses"
-  projectReferenceCode: "projects"
-  datasetReferenceCode: "datasets"
-  publicationReferenceCode: "publications"
+  organizationReferenceCode: ${DEPOSIT_ZENODO_ORGANIZATIONS_CODE:organisations}
+  grantReferenceCode: ${DEPOSIT_ZENODO_GRANTS_CODE:grants}
+  funderReferenceCode: ${DEPOSIT_ZENODO_FUNDERS_CODE:funders}
+  researcherReferenceCode: ${DEPOSIT_ZENODO_RESEARCHERS_CODE:researchers}
+  licenceReferenceCode: ${DEPOSIT_ZENODO_LICENCES_CODE:licenses}
+  projectReferenceCode: ${DEPOSIT_ZENODO_PROJECTS_CODE:projects}
+  datasetReferenceCode: ${DEPOSIT_ZENODO_DATASETS_CODE:datasets}
+  publicationReferenceCode: ${DEPOSIT_ZENODO_PUBLICATIONS_CODE:publications}
   openaireGrantSourceCode: "openaire"
   orcidResearcherSourceCode: "ORCID"
   maxInMemorySizeInBytes: 6554000
   depositConfiguration:
     deposit-type: 2
     repository-id: zenodo
-    access-token: ${ZENODO_ACCESS_TOKEN}
-    repository-url:  ${ZENODO_URL}
-    repository-authorization-url: ${ZENODO_AUTHORIZATION_URL}
-    repository-record-url: ${ZENODO_RECORD_URL}
-    repository-access-token-url: ${ZENODO_ACCESS_TOKEN_URL}
-    repository-client-id: ${ZENODO_CLIENT_ID}
-    repository-client-secret: ${ZENODO_CLIENT_SECRET}
-    redirect-uri: ${REDIRECT_URL}
-    has-logo: true
-    useSharedStorage: false
+    access-token: ${DEPOSIT_ZENODO_ACCESS_TOKEN}
+    repository-url:  ${DEPOSIT_ZENODO_URL:https://zenodo.org/api/}
+    repository-authorization-url: ${DEPOSIT_ZENODO_AUTHORIZATION_URL:https://zenodo.org/oauth/authorize}
+    repository-record-url: ${DEPOSIT_ZENODO_RECORD_URL:https://zenodo.org/doi/{doi_id}}
+    repository-access-token-url: ${DEPOSIT_ZENODO_ACCESS_TOKEN_URL:https://zenodo.org/oauth/token}
+    repository-client-id: ${DEPOSIT_ZENODO_CLIENT_ID}
+    repository-client-secret: ${DEPOSIT_ZENODO_CLIENT_SECRET}
+    redirect-uri: ${DEPOSIT_ZENODO_REDIRECT_URL}
+    has-logo: ${DEPOSIT_ZENODO_HAS_LOGO:true}
+    useSharedStorage: ${DEPOSIT_ZENODO_USE_SHARED_STORAGE:false}
+  community: ${DEPOSIT_ZENODO_COMMUNITY}
+  affiliation: ${DEPOSIT_ZENODO_AFFILIATION}
+  domain: ${OPENCDMP_DOMAIN}
+  logo: ${DEPOSIT_ZENODO_LOGO_PATH:classpath:zenodo.jpg}

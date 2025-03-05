@@ -270,7 +270,7 @@ public class ZenodoBuilder {
         
         if (plan.getAccessType().equals(PlanAccessType.Public)) {
             ZenodoRelator relator = new ZenodoRelator();
-            relator.setIdentifier(zenodoServiceProperties.getDomain() + "/external/zenodo/" + plan.getId().toString());
+            relator.setIdentifier(zenodoServiceProperties.getDomain() + "explore-plans/overview/public/" + plan.getId().toString());
             relator.setRelation(IS_IDENTICAL_TO);
             if (deposit.getMetadata().getRelatedIdentifiers() == null)deposit.getMetadata().setRelatedIdentifiers(new ArrayList<>());
             deposit.getMetadata().getRelatedIdentifiers().add(relator);
