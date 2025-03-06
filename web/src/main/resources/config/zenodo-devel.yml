@@ -1,8 +1,0 @@
-zenodo:
-  community: OpenCDMP
-  affiliation: OpenCDMP
-  domain: https://opencdmp.eu/
-  logo: classpath:zenodo.jpg
-  depositConfiguration: 
-    has-logo: true
-    useSharedStorage: false
