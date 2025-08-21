@@ -13,13 +13,17 @@ public class ZenodoServiceProperties {
 
     private String affiliation;
 
+    private String resourceTypeId;
+
+    private String publisherName;
+
     private DepositConfiguration depositConfiguration;
 
     private String organizationReferenceCode;
     private String grantReferenceCode;
     private String funderReferenceCode;
     private String researcherReferenceCode;
-    private String licensesReferenceCode;
+    private String licenceReferenceCode;
     private String openaireGrantSourceCode;
     private String orcidResearcherSourceCode;
     private int maxInMemorySizeInBytes;
@@ -54,6 +58,22 @@ public class ZenodoServiceProperties {
 
     public void setAffiliation(String affiliation) {
         this.affiliation = affiliation;
+    }
+
+    public String getResourceTypeId() {
+        return resourceTypeId;
+    }
+
+    public void setResourceTypeId(String resourceTypeId) {
+        this.resourceTypeId = resourceTypeId;
+    }
+
+    public String getPublisherName() {
+        return publisherName;
+    }
+
+    public void setPublisherName(String publisherName) {
+        this.publisherName = publisherName;
     }
 
     public DepositConfiguration getDepositConfiguration() {
@@ -96,12 +116,12 @@ public class ZenodoServiceProperties {
         this.researcherReferenceCode = researcherReferenceCode;
     }
 
-    public String getLicensesReferenceCode() {
-        return licensesReferenceCode;
+    public String getLicenceReferenceCode() {
+        return licenceReferenceCode;
     }
 
-    public void setLicensesReferenceCode(String licensesReferenceCode) {
-        this.licensesReferenceCode = licensesReferenceCode;
+    public void setLicenceReferenceCode(String licenceReferenceCode) {
+        this.licenceReferenceCode = licenceReferenceCode;
     }
 
     public String getOpenaireGrantSourceCode() {

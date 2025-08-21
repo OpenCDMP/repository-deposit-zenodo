@@ -7,6 +7,7 @@ import org.opencdmp.commonmodels.models.plan.PlanModel;
 import org.opencdmp.deposit.zenodorepository.audit.AuditableAction;
 import org.opencdmp.depositbase.repository.DepositConfiguration;
 import org.opencdmp.deposit.zenodorepository.service.zenodo.ZenodoDepositService;
+import org.opencdmp.depositbase.repository.PlanDepositModel;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
@@ -29,13 +30,13 @@ public class DepositController implements org.opencdmp.depositbase.repository.De
 	    this.auditService = auditService;
     }
 
-    public String deposit(@RequestBody PlanModel planModel, @RequestParam("authToken")String authToken) throws Exception {
-        logger.debug(new MapLogEntry("deposit " + PlanModel.class.getSimpleName()).And("planModel", planModel));
+    public String deposit(@RequestBody PlanDepositModel planDepositModel) throws Exception {
+        logger.debug(new MapLogEntry("deposit " + PlanModel.class.getSimpleName()).And("planDepositModel", planDepositModel));
 
-        String doiId = depositClient.deposit(planModel, authToken);
+        String doiId = depositClient.deposit(planDepositModel);
         
         this.auditService.track(AuditableAction.Deposit_Deposit, Map.ofEntries(
-                new AbstractMap.SimpleEntry<String, Object>("planModel", planModel)
+                new AbstractMap.SimpleEntry<String, Object>("planDepositModel", planDepositModel)
         ));
         return doiId;
     }

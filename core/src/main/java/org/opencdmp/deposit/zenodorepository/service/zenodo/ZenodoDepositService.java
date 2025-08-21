@@ -1,10 +1,10 @@
 package org.opencdmp.deposit.zenodorepository.service.zenodo;
 
-import org.opencdmp.commonmodels.models.plan.PlanModel;
 import org.opencdmp.depositbase.repository.DepositConfiguration;
+import org.opencdmp.depositbase.repository.PlanDepositModel;
 
 public interface ZenodoDepositService {
-	String deposit(PlanModel planDepositModel, String zenodoToken) throws Exception;
+	String deposit(PlanDepositModel planDepositModel) throws Exception;
 
 	DepositConfiguration getConfiguration();
 

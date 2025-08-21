@@ -23,7 +23,19 @@ zenodo:
     redirect-uri: ${DEPOSIT_ZENODO_REDIRECT_URL}
     has-logo: ${DEPOSIT_ZENODO_HAS_LOGO:true}
     useSharedStorage: ${DEPOSIT_ZENODO_USE_SHARED_STORAGE:false}
-  community: ${DEPOSIT_ZENODO_COMMUNITY}
+    configuration-fields:
+    user-configuration-fields:
+      - code: zenodo-access-token
+        type: 0
+        label: Access Token
+        authInfo: true
+    auth-methods:
+      - PluginDefault
+      - AuthInfoFromUserProfile
+      - oAuth2Flow
+  community: ${DEPOSIT_ZENODO_COMMUNITY_ID}
   affiliation: ${DEPOSIT_ZENODO_AFFILIATION}
   domain: ${OPENCDMP_DOMAIN}
   logo: ${DEPOSIT_ZENODO_LOGO_PATH:classpath:zenodo.jpg}
+  resourceTypeId: ${DEPOSIT_ZENODO_RESOURCE_TYPE_ID:publication-datamanagementplan}
+  publisherName: ${DEPOSIT_ZENODO_PUBLISHER_NAME:Zenodο}

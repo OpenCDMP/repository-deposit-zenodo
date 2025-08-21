@@ -7,14 +7,13 @@ import org.opencdmp.commonmodels.enums.EnumValueProvider;
 import java.util.Map;
 
 public enum ZenodoAccessRight implements EnumValueProvider<String> {
-    RESTRICTED(Names.Restricted), EMBARGOED(Names.Embargoed), OPEN(Names.Open);
+    RESTRICTED(Names.Restricted), PUBLIC(Names.Public);
 
     private final String value;
 
     public static class Names {
         public static final String Restricted = "restricted";
-        public static final String Embargoed = "embargoed";
-        public static final String Open = "open";
+        public static final String Public = "public";
     }
 
     ZenodoAccessRight(String value) {

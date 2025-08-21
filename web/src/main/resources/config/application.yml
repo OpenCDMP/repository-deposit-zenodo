@@ -8,7 +8,9 @@ spring:
       optional:classpath:config/zenodo.yml[.yml], optional:classpath:config/zenodo-${spring.profiles.active}.yml[.yml], optional:file:../config/zenodo-${spring.profiles.active}.yml[.yml],
       optional:classpath:config/pid.yml[.yml], optional:classpath:config/pid-${spring.profiles.active}.yml[.yml], optional:file:../config/pid-${spring.profiles.active}.yml[.yml],
       optional:classpath:config/funder.yml[.yml], optional:classpath:config/funder-${spring.profiles.active}.yml[.yml], optional:file:../config/funder-${spring.profiles.active}.yml[.yml],
-      optional:classpath:config/identifiers.yml[.yml], optional:classpath:config/identifiers-${spring.profiles.active}.yml[.yml], optional:file:../config/identifiers-${spring.profiles.active}.yml[.yml],
+      optional:classpath:config/semantics.yml[.yml], optional:classpath:config/identifiers-${spring.profiles.active}.yml[.yml], optional:file:../config/identifiers-${spring.profiles.active}.yml[.yml],
       optional:classpath:config/security.yml[.yml], optional:classpath:config/security-${spring.profiles.active}.yml[.yml], optional:file:../config/security-${spring.profiles.active}.yml[.yml],
       optional:classpath:config/cache.yml[.yml], optional:classpath:config/cache-${spring.profiles.active}.yml[.yml], optional:file:../config/cache-${spring.profiles.active}.yml[.yml],
-      optional:classpath:config/idpclaims.yml[.yml], optional:classpath:config/idpclaims-${spring.profiles.active}.yml[.yml], optional:file:../config/idpclaims-${spring.profiles.active}.yml[.yml]
+      optional:classpath:config/idpclaims.yml[.yml], optional:classpath:config/idpclaims-${spring.profiles.active}.yml[.yml], optional:file:../config/idpclaims-${spring.profiles.active}.yml[.yml],
+      optional:classpath:config/programming-languages.yml[.yml], optional:classpath:config/programming-languages-${spring.profiles.active}.yml[.yml], optional:file:../config/programming-languages-${spring.profiles.active}.yml[.yml]
+

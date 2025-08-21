@@ -6,20 +6,25 @@ import gr.cite.tools.logging.LoggerService;
 import gr.cite.tools.logging.MapLogEntry;
 import org.opencdmp.commonmodels.models.FileEnvelopeModel;
 import org.opencdmp.commonmodels.models.plan.PlanModel;
+import org.opencdmp.commonmodels.models.plugin.PluginUserFieldModel;
+import org.opencdmp.deposit.zenodorepository.model.ZenodoCommunity;
 import org.opencdmp.deposit.zenodorepository.model.ZenodoDeposit;
+import org.opencdmp.deposit.zenodorepository.model.ZenodoUploadFile;
 import org.opencdmp.deposit.zenodorepository.model.builder.ZenodoBuilder;
 import org.opencdmp.deposit.zenodorepository.service.storage.FileStorageService;
 import org.opencdmp.depositbase.repository.DepositConfiguration;
+import org.opencdmp.depositbase.repository.PlanDepositModel;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.core.io.ByteArrayResource;
+import org.springframework.core.io.Resource;
+import org.springframework.core.io.ResourceLoader;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
-import org.springframework.util.ResourceUtils;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.reactive.function.BodyInserters;
@@ -35,8 +40,9 @@ import java.util.*;
 @Component
 public class ZenodoDepositServiceImpl implements ZenodoDepositService {
     private static final LoggerService logger = new LoggerService(LoggerFactory.getLogger(ZenodoDepositServiceImpl.class));
-    private static final String PUBLISH_ID = "conceptdoi";
+    private static final String PUBLISH_ID = "doi";
 
+    private static final String CONFIGURATION_FIELD_ACCESS_TOKEN = "zenodo-access-token";
     private static final String CLIENT_ID = "client_id";
     private static final String CLIENT_SECRET = "client_secret";
     private static final String GRANT_TYPE = "grant_type";
@@ -45,10 +51,8 @@ public class ZenodoDepositServiceImpl implements ZenodoDepositService {
     private static final String ZENODO_LINKS = "links";
     private static final String REDIRECT_URI = "redirect_uri";
     private static final String ACCESS_TOKEN = "access_token";
-    private static final String ZENODO_LINKS_BUCKET = "bucket";
-    private static final String ZENODO_LINKS_PUBLISH = "publish";
+    private static final String ZENODO_LINKS_RECORD = "record";
     private static final String ZENODO_LINKS_SELF = "self";
-    private static final String ZENODO_LINKS_LATEST_DRAFT = "latest_draft";
     private static final String ZENODO_METADATA = "metadata";
     private static final String ZENODO_METADATA_VERSION = "version";
 
@@ -57,25 +61,36 @@ public class ZenodoDepositServiceImpl implements ZenodoDepositService {
     private final ZenodoServiceProperties zenodoServiceProperties;
     private final ZenodoBuilder zenodoBuilder;
     private final FileStorageService storageService;
+    private final ResourceLoader resourceLoader;
 
     private byte[] logo;
     
     @Autowired
-    public ZenodoDepositServiceImpl(ZenodoServiceProperties zenodoServiceProperties, ZenodoBuilder mapper, FileStorageService storageService){
+    public ZenodoDepositServiceImpl(ZenodoServiceProperties zenodoServiceProperties, ZenodoBuilder mapper, FileStorageService storageService, ResourceLoader resourceLoader){
         this.zenodoServiceProperties = zenodoServiceProperties;
         this.zenodoBuilder = mapper;
 	    this.storageService = storageService;
-	    this.logo = null;
+        this.resourceLoader = resourceLoader;
+        this.logo = null;
     }
 
     @Override
-    public String deposit(PlanModel planModel, String zenodoToken) throws Exception {
+    public String deposit(PlanDepositModel planDepositModel) throws Exception {
 
         DepositConfiguration depositConfiguration = this.getConfiguration();
 
-        if(depositConfiguration != null) {
+        if(depositConfiguration != null && planDepositModel != null && planDepositModel.getPlanModel() != null) {
 
-            if (zenodoToken == null || zenodoToken.isEmpty()) {
+            String zenodoToken = null;
+            if (planDepositModel.getAuthInfo() != null) {
+                if (planDepositModel.getAuthInfo().getAuthToken() != null && !planDepositModel.getAuthInfo().getAuthToken().isBlank()) zenodoToken = planDepositModel.getAuthInfo().getAuthToken();
+                else if (planDepositModel.getAuthInfo().getAuthFields() != null && !planDepositModel.getAuthInfo().getAuthFields().isEmpty() && depositConfiguration.getUserConfigurationFields() != null) {
+                    PluginUserFieldModel userFieldModel = planDepositModel.getAuthInfo().getAuthFields().stream().filter(x -> x.getCode().equals(CONFIGURATION_FIELD_ACCESS_TOKEN)).findFirst().orElse(null);
+                    if (userFieldModel != null && userFieldModel.getTextValue() != null && !userFieldModel.getTextValue().isBlank()) zenodoToken = userFieldModel.getTextValue();
+                }
+            }
+
+            if (zenodoToken == null || zenodoToken.isBlank()) {
                 zenodoToken = depositConfiguration.getAccessToken();
             }
 
@@ -86,73 +101,41 @@ public class ZenodoDepositServiceImpl implements ZenodoDepositService {
 
             DepositConfiguration zenodoConfig = this.zenodoServiceProperties.getDepositConfiguration();
             if (zenodoConfig == null) return null;
-            ZenodoDeposit deposit = zenodoBuilder.build(planModel);
+            ZenodoDeposit deposit = zenodoBuilder.build(planDepositModel.getPlanModel());
 
             LinkedHashMap<String, String> links;
-            String previousDOI = planModel.getPreviousDOI();
-            String unpublishedUrl = null;
+            String previousDOI = planDepositModel.getPlanModel().getPreviousDOI();
             String publishUrl;
+            boolean isNewVersion = false;
             try {
 
                 if (previousDOI == null) {
                     links = deposit(zenodoToken, zenodoUrl, zenodoClient, deposit);
                 } else {
-                    unpublishedUrl = this.getUnpublishedDOI(zenodoClient, zenodoUrl, previousDOI, zenodoToken, planModel.getVersion());
-                    if (unpublishedUrl == null) {
                         //It requires more than one step to create a new version
                         //First, get the deposit related to the concept DOI
                         links = depositNewVersion(zenodoToken, zenodoUrl, previousDOI, zenodoClient, deposit);
-                    } else {
-                        links = depositFromPreviousDoi(zenodoToken, zenodoUrl, previousDOI, zenodoClient);
-                    }
+                        isNewVersion = true;
                 }
 
-                if (unpublishedUrl == null) {
-                    // Second step, add the file to the entry.
-                    FileEnvelopeModel pdfEnvelope = planModel.getPdfFile();
+                // Second step, add the file to the entry.
 
-                    if (links == null || !links.containsKey(ZENODO_LINKS_BUCKET)) throw new MyApplicationException("bucket not found");
-                    String addFileUrl = links.get(ZENODO_LINKS_BUCKET) + "/" + cleanFileName(pdfEnvelope.getFilename()) + "?access_token=" + zenodoToken;
+                if (links == null || !links.containsKey(ZENODO_LINKS_RECORD)) throw new MyApplicationException("record not found");
 
-                    byte[] pdfFileBytes = null;
-                    if (this.getConfiguration().isUseSharedStorage() && pdfEnvelope.getFileRef() != null && !pdfEnvelope.getFileRef().isBlank()) {
-                        pdfFileBytes = this.storageService.readFile(pdfEnvelope.getFileRef());
-                    } 
-                    if (pdfFileBytes == null || pdfFileBytes.length == 0){
-                        pdfFileBytes = pdfEnvelope.getFile();
-                    }
-                    zenodoClient.put().uri(addFileUrl)
-                            .body(BodyInserters
-                                    .fromResource(new ByteArrayResource(pdfFileBytes)))
-                            .retrieve().toEntity(Map.class).block();
-                    FileEnvelopeModel rdaJsonEnvelope = planModel.getRdaJsonFile();
+                FileEnvelopeModel pdfEnvelope = planDepositModel.getPlanModel().getPdfFile();
+                this.uploadFile(zenodoToken, zenodoClient, links, pdfEnvelope);
 
-                    String jsonFileName = cleanFileName(rdaJsonEnvelope.getFilename());
-                    addFileUrl = links.get(ZENODO_LINKS_BUCKET) + "/" + jsonFileName + "?access_token=" + zenodoToken;
+                FileEnvelopeModel rdaJsonEnvelope = planDepositModel.getPlanModel().getRdaJsonFile();
+                this.uploadFile(zenodoToken, zenodoClient, links, rdaJsonEnvelope);
 
-                    byte[] rdaJsonBytes = null;
-                    if (this.getConfiguration().isUseSharedStorage() && rdaJsonEnvelope.getFileRef() != null && !rdaJsonEnvelope.getFileRef().isBlank()) {
-                        rdaJsonBytes = this.storageService.readFile(rdaJsonEnvelope.getFileRef());
-                    }
-                    if (rdaJsonBytes == null || rdaJsonBytes.length == 0){
-                        rdaJsonBytes = rdaJsonEnvelope.getFile();
-                    }
-                    zenodoClient.put().uri(addFileUrl).headers(httpHeaders -> httpHeaders.setContentType(MediaType.APPLICATION_OCTET_STREAM)).body(BodyInserters.fromResource(new ByteArrayResource(rdaJsonBytes))).retrieve().toEntity(Map.class).block();
-
-                    if (planModel.getSupportingFilesZip() != null) {
-                        String supportingFilesZipName = cleanFileName(planModel.getSupportingFilesZip().getFilename());
-
-                        addFileUrl = links.get(ZENODO_LINKS_BUCKET) + "/" + supportingFilesZipName + "?access_token=" + zenodoToken;
-                        zenodoClient.put().uri(addFileUrl).body(BodyInserters.fromResource(new ByteArrayResource(supportingFilesZipName.getBytes()))).retrieve().toEntity(Map.class).block();
-                    }
-
-                    // Third post call to Zenodo to publish the entry and return the DOI.
-                    publishUrl = links.get(ZENODO_LINKS_PUBLISH) + "?access_token=" + zenodoToken;
-                } else {
-                    publishUrl = unpublishedUrl + "?access_token=" + zenodoToken;
+                if (planDepositModel.getPlanModel().getSupportingFilesZip() != null) {
+                    this.uploadFile(zenodoToken, zenodoClient, links, planDepositModel.getPlanModel().getSupportingFilesZip());
                 }
 
-                return this.publish(zenodoClient, publishUrl);
+                // Third post call to Zenodo to publish the entry and return the DOI.
+                publishUrl = links.get(ZENODO_LINKS_RECORD) + "/draft/actions/publish" + "?access_token=" + zenodoToken;
+
+                return this.publish(zenodoClient, publishUrl, zenodoToken, isNewVersion, planDepositModel.getPlanModel());
 
             } catch (HttpClientErrorException | HttpServerErrorException ex) {
                 logger.error(ex.getMessage(), ex);
@@ -185,82 +168,31 @@ public class ZenodoDepositServiceImpl implements ZenodoDepositService {
     private static LinkedHashMap<String, String> depositNewVersion(String zenodoToken, String zenodoUrl, String previousDOI, WebClient zenodoClient, ZenodoDeposit deposit) throws Exception {
         Map<String, Object> createResponse;
         LinkedHashMap<String, String> links;
-        String listUrl = zenodoUrl + "deposit/depositions" + "?q=conceptdoi:\"" + previousDOI + "\"&access_token=" + zenodoToken;
+        String listUrl = zenodoUrl + "records/" + (previousDOI.substring(previousDOI.lastIndexOf(".") + 1)) + "/versions" + "?access_token=" + zenodoToken;
         logger.debug("listUrl = " + listUrl);
-        ResponseEntity<List<Map>> listResponses = zenodoClient.get().uri(listUrl).retrieve().toEntityList(Map.class).block();
+        ResponseEntity<List<Map>> listResponses = zenodoClient.post().uri(listUrl).retrieve().toEntityList(Map.class).block();
         if (listResponses == null || listResponses.getBody() == null || listResponses.getBody().isEmpty()) return null;
         createResponse = (Map<String, Object>) listResponses.getBody().get(0);
         logger.debug("createResponse-previousDoi:");
         logger.debug(objectMapper.writeValueAsString(createResponse));
         links = (LinkedHashMap<String, String>) createResponse.getOrDefault(ZENODO_LINKS, new LinkedHashMap<>());
-        
-        //Second, make the new version (not in the links?)
-        if (!links.containsKey(ZENODO_LINKS_LATEST_DRAFT)) throw new MyApplicationException("previousDOI not found");
-        String newVersionUrl = links.get(ZENODO_LINKS_LATEST_DRAFT) + "/actions/newversion" + "?access_token=" + zenodoToken;
-        logger.debug("new version url: " + newVersionUrl);
-        createResponse = zenodoClient.post().uri(newVersionUrl)
-                .exchangeToMono(mono ->
-                                mono.statusCode().isError() ?
-                                        mono.createException().flatMap(Mono::error) :
-                                        mono.bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})
-                        ).block();
-        logger.debug("createResponse-newVersion:");
-        logger.debug(objectMapper.writeValueAsString(createResponse));
-        links = createResponse == null ? new LinkedHashMap<>() : (LinkedHashMap<String, String>) createResponse.getOrDefault(ZENODO_LINKS, new LinkedHashMap<>());
-        
-        //Third, get the new deposit
-        if (!links.containsKey(ZENODO_LINKS_LATEST_DRAFT)) throw new MyApplicationException("can not create latest draft");
-        String latestDraftUrl = links.get(ZENODO_LINKS_LATEST_DRAFT) + "?access_token=" + zenodoToken;
-        createResponse = zenodoClient.get().uri(latestDraftUrl)
-                .exchangeToMono(mono -> mono.bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})).block();
-        logger.debug("createResponse-latestDraft:");
-        logger.debug(objectMapper.writeValueAsString(createResponse));
-        links = createResponse == null ? new LinkedHashMap<>() : (LinkedHashMap<String, String>) createResponse.getOrDefault(ZENODO_LINKS, new LinkedHashMap<>());
 
-        //At this point it might fail to perform the next requests so enclose them with try catch
-        try {
-            //Forth, update the new deposit's metadata
-            String updateUrl = links.get(ZENODO_LINKS_SELF) + "?access_token=" + zenodoToken;
-            logger.debug(new MapLogEntry("Deposit New Version")
-                    .And("url", updateUrl)
-                    .And("body", deposit));
-            zenodoClient.put().uri(updateUrl)
-                    .headers(httpHeaders -> {
-                        httpHeaders.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
-                        httpHeaders.setContentType(MediaType.APPLICATION_JSON);
-                    })
-                    .bodyValue(deposit).retrieve().toEntity(Map.class).block();
-            //And finally remove pre-existing files from it
-            String fileListUrl = links.get(ZENODO_LINKS_SELF) + "/files" + "?access_token=" + zenodoToken;
-            ResponseEntity<List<Map>> fileListResponse = zenodoClient.get().uri(fileListUrl).retrieve().toEntityList(Map.class).block();
-            for (Map file : fileListResponse.getBody()) {
-                String fileDeleteUrl = links.get(ZENODO_LINKS_SELF) + "/files/" + file.get("id") + "?access_token=" + zenodoToken;
-                zenodoClient.delete().uri(fileDeleteUrl).retrieve().toEntity(Void.class).block();
-            }
-        } catch (Exception e) {
-            //In case the last two steps fail delete the latest Deposit it in order to create a new one (only one at a time is allowed)
-            //restTemplate.delete(latestDraftUrl);
-            logger.error(e.getMessage(), e);
-            zenodoClient.delete().uri(latestDraftUrl).retrieve().toEntity(Void.class).block();
-            throw e;
-        }
+        zenodoClient.put().uri(links.get(ZENODO_LINKS_SELF) + "?access_token=" + zenodoToken).headers(httpHeaders -> {
+                    httpHeaders.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
+                    httpHeaders.setContentType(MediaType.APPLICATION_JSON);
+                })
+                .bodyValue(deposit).exchangeToMono(mono ->
+                        mono.statusCode().isError() ?
+                                mono.createException().flatMap(Mono::error) :
+                                mono.bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})).block();
+
         return links;
     }
 
-    private static LinkedHashMap<String, String> depositFromPreviousDoi(String zenodoToken, String zenodoUrl, String previousDOI, WebClient zenodoClient) {
-        Map<String, LinkedHashMap<String, String>> createResponse;
-        String listUrl = zenodoUrl + "deposit/depositions" + "?q=conceptdoi:\"" + previousDOI + "\"&access_token=" + zenodoToken;
-        ResponseEntity<List<Map>> listResponses = zenodoClient.get().uri(listUrl).retrieve().toEntityList(Map.class).block();
-        if (listResponses == null || listResponses.getBody() == null || listResponses.getBody().isEmpty()) return null;
-
-        createResponse = (Map<String, LinkedHashMap<String, String>>) listResponses.getBody().get(0);
-
-        return createResponse.getOrDefault(ZENODO_LINKS, null);
-    }
 
     private LinkedHashMap<String, String> deposit(String zenodoToken, String zenodoUrl, WebClient zenodoClient, ZenodoDeposit deposit) {
         Map<String, Object> createResponse;
-        String createUrl = zenodoUrl + "deposit/depositions" + "?access_token=" + zenodoToken;
+        String createUrl = zenodoUrl + "records" + "?access_token=" + zenodoToken;
         logger.debug(new MapLogEntry("Deposit")
                 .And("url", createUrl)
                 .And("body", deposit));
@@ -275,15 +207,77 @@ public class ZenodoDepositServiceImpl implements ZenodoDepositService {
 	    return (LinkedHashMap<String, String>) createResponse.getOrDefault(ZENODO_LINKS, null);
     }
 
-    private String publish(WebClient webClient, String publishUrl){
+    private void uploadFile(String zenodoToken, WebClient zenodoClient, LinkedHashMap<String, String> links, FileEnvelopeModel fileEnvelopeModel) {
+        ZenodoUploadFile uploadFile = new ZenodoUploadFile(cleanFileName(fileEnvelopeModel.getFilename()));
+
+        String addFileUrl = links.get(ZENODO_LINKS_RECORD) + "/draft/files" + "?access_token=" + zenodoToken;
+        logger.debug(new MapLogEntry("Deposit")
+                .And("url", addFileUrl)
+                .And("body", uploadFile));
+
+        zenodoClient.post().uri(addFileUrl)
+                .bodyValue(List.of(uploadFile))
+                .headers(httpHeaders -> {
+                    httpHeaders.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
+                    httpHeaders.setContentType(MediaType.APPLICATION_JSON);
+                }).exchangeToMono(mono ->
+                        mono.statusCode().isError() ?
+                                mono.createException().flatMap(Mono::error) :
+                                mono.bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})).block();
+
+        byte[] fileBytes = null;
+        if (this.getConfiguration().isUseSharedStorage() && fileEnvelopeModel.getFileRef() != null && !fileEnvelopeModel.getFileRef().isBlank()) {
+            fileBytes = this.storageService.readFile(fileEnvelopeModel.getFileRef());
+        }
+        if (fileBytes == null || fileBytes.length == 0){
+            fileBytes = fileEnvelopeModel.getFile();
+        }
+
+        String contentFileUrl = links.get(ZENODO_LINKS_RECORD) + "/draft/files/" + uploadFile.getKey() + "/content" + "?access_token=" + zenodoToken;
+        zenodoClient.put().uri(contentFileUrl)
+                .contentType(MediaType.APPLICATION_OCTET_STREAM)
+                .body(BodyInserters
+                        .fromResource(new ByteArrayResource(fileBytes)))
+                .retrieve().toEntity(Map.class).block();
+
+        String commitFileUrl = links.get(ZENODO_LINKS_RECORD) + "/draft/files/" + uploadFile.getKey() + "/commit" + "?access_token=" + zenodoToken;
+        zenodoClient.post().uri(commitFileUrl)
+                .retrieve().toEntity(Map.class).block();
+
+    }
+
+    private String publish(WebClient webClient, String publishUrl, String zenodoToken, boolean isNewVersion, PlanModel planModel){
         logger.debug(new MapLogEntry("publish")
                 .And("url", publishUrl));
         Map<String, Object> publishResponse = webClient.post().uri(publishUrl).bodyValue("").exchangeToMono(mono ->
                 mono.statusCode().isError() ?
                         mono.createException().flatMap(Mono::error) :
                         mono.bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})).block();
-        if (publishResponse == null) throw new UnsupportedOperationException("Failed to publish to Zenodo"); 
+        if (publishResponse == null) throw new UnsupportedOperationException("Failed to publish to Zenodo");
+
+        if(!isNewVersion) this.addCommunityEntry(webClient, zenodoToken, publishResponse, planModel);
         return (String) publishResponse.get(PUBLISH_ID);
+    }
+
+    private void addCommunityEntry(WebClient webClient, String zenodoToken, Map<String, Object> publishResponse, PlanModel planModel) {
+        String communityId = this.zenodoBuilder.getCommunity(planModel);
+        if (communityId != null && !communityId.isBlank()) {
+            ZenodoCommunity.Community community = new ZenodoCommunity.Community();
+            community.setId(communityId);
+
+            ZenodoCommunity zenodoCommunity = new ZenodoCommunity();
+            zenodoCommunity.setCommunities(List.of(community));
+
+            var links = (LinkedHashMap<String, String>) publishResponse.getOrDefault(ZENODO_LINKS, null);
+            webClient.post().uri(links.get(ZENODO_LINKS_SELF) + "/communities?access_token=" + zenodoToken).headers(httpHeaders -> {
+                        httpHeaders.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
+                        httpHeaders.setContentType(MediaType.APPLICATION_JSON);
+                    })
+                    .bodyValue(zenodoCommunity).exchangeToMono(mono ->
+                            mono.statusCode().isError() ?
+                                    mono.createException().flatMap(Mono::error) :
+                                    mono.bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})).block();
+        }
     }
 
 
@@ -326,7 +320,7 @@ public class ZenodoDepositServiceImpl implements ZenodoDepositService {
                                 })).block();
                 
 	            return values != null ? (String) values.getOrDefault(ACCESS_TOKEN, null) : null;
-            } catch (HttpClientErrorException ex) {
+            } catch (Exception ex) {
                 logger.error(ex.getMessage(), ex);
                 return null;
             }
@@ -341,11 +335,11 @@ public class ZenodoDepositServiceImpl implements ZenodoDepositService {
         if(zenodoConfig != null && zenodoConfig.isHasLogo() && this.zenodoServiceProperties.getLogo() != null && !this.zenodoServiceProperties.getLogo().isBlank()) {
             if (this.logo == null) {
                 try {
-                    java.io.File logoFile = ResourceUtils.getFile(this.zenodoServiceProperties.getLogo());
-                    if (!logoFile.exists()) return null;
-                    try(InputStream inputStream = new FileInputStream(logoFile)){
+                    Resource resource = resourceLoader.getResource(this.zenodoServiceProperties.getLogo());
+                    if(!resource.isReadable()) return null;
+                    try(InputStream inputStream = resource.getInputStream()) {
                         this.logo = inputStream.readAllBytes();
-                    };
+                    }
                 } catch (IOException e) {
                     logger.error(e.getMessage(), e);
                     throw new RuntimeException(e);
@@ -361,7 +355,7 @@ public class ZenodoDepositServiceImpl implements ZenodoDepositService {
             Map<String, LinkedHashMap<String, String>> createResponse = null;
             LinkedHashMap<String, String> links;
             LinkedHashMap<String, String> metadata;
-            String listUrl = zenodoUrl + "deposit/depositions" + "?q=conceptdoi:\"" + doi + "\"&access_token=" + token;
+            String listUrl = zenodoUrl + "records/" + (doi.substring(doi.lastIndexOf(".") + 1));
             ResponseEntity<List<Map>> listResponses = client.get().uri(listUrl).retrieve().toEntityList(Map.class).block();
             if (listResponses == null || listResponses.getBody() == null || listResponses.getBody().isEmpty()) return null;
             
@@ -370,7 +364,7 @@ public class ZenodoDepositServiceImpl implements ZenodoDepositService {
             links = createResponse.getOrDefault(ZENODO_LINKS, new LinkedHashMap<>());
 
             if (metadata.get(ZENODO_METADATA_VERSION).equals(version.toString())) {
-                return links.get(ZENODO_LINKS_PUBLISH);
+                return links.get(ZENODO_LINKS_SELF);
             } else {
                 return null;
             }

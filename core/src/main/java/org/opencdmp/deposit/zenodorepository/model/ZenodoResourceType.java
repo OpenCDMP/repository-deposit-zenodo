@@ -5,8 +5,15 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 
 @JsonIgnoreProperties(ignoreUnknown = true)
 @JsonInclude(JsonInclude.Include.NON_NULL)
-public class ZenodoGrant {
+public class ZenodoResourceType {
     private String id;
+
+    public ZenodoResourceType() {
+    }
+
+    public ZenodoResourceType(String id) {
+        this.id = id;
+    }
 
     public String getId() {
         return id;
