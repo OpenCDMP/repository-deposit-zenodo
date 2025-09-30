@@ -22,6 +22,7 @@ import org.springframework.core.io.Resource;
 import org.springframework.core.io.ResourceLoader;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.stereotype.Component;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
@@ -31,6 +32,7 @@ import org.springframework.web.reactive.function.BodyInserters;
 import org.springframework.web.reactive.function.client.ExchangeFilterFunction;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
+import reactor.netty.http.client.HttpClient;
 
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -168,7 +170,23 @@ public class ZenodoDepositServiceImpl implements ZenodoDepositService {
     private static LinkedHashMap<String, String> depositNewVersion(String zenodoToken, String zenodoUrl, String previousDOI, WebClient zenodoClient, ZenodoDeposit deposit) throws Exception {
         Map<String, Object> createResponse;
         LinkedHashMap<String, String> links;
-        String listUrl = zenodoUrl + "records/" + (previousDOI.substring(previousDOI.lastIndexOf(".") + 1)) + "/versions" + "?access_token=" + zenodoToken;
+
+        String id = previousDOI.substring(previousDOI.lastIndexOf(".") + 1);
+
+        // if previous doi is parent doi get record to get the latest doi
+        String recordUrl = zenodoUrl + "records/" + id + "?access_token=" + zenodoToken;
+        Map<String, Object> record = zenodoClient.get()
+                .uri(recordUrl)
+                .retrieve()
+                .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})
+                .block();
+
+        if (record == null) throw new MyApplicationException("record not found");
+
+        Map<String, Object> metadata = (Map<String, Object>) record.getOrDefault("metadata", Collections.emptyMap());
+        String doi = (String) metadata.get("doi");
+
+        String listUrl = zenodoUrl + "records/" + (doi.substring(previousDOI.lastIndexOf(".") + 1)) + "/versions" + "?access_token=" + zenodoToken;
         logger.debug("listUrl = " + listUrl);
         ResponseEntity<List<Map>> listResponses = zenodoClient.post().uri(listUrl).retrieve().toEntityList(Map.class).block();
         if (listResponses == null || listResponses.getBody() == null || listResponses.getBody().isEmpty()) return null;
@@ -268,15 +286,19 @@ public class ZenodoDepositServiceImpl implements ZenodoDepositService {
             ZenodoCommunity zenodoCommunity = new ZenodoCommunity();
             zenodoCommunity.setCommunities(List.of(community));
 
-            var links = (LinkedHashMap<String, String>) publishResponse.getOrDefault(ZENODO_LINKS, null);
-            webClient.post().uri(links.get(ZENODO_LINKS_SELF) + "/communities?access_token=" + zenodoToken).headers(httpHeaders -> {
-                        httpHeaders.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
-                        httpHeaders.setContentType(MediaType.APPLICATION_JSON);
-                    })
-                    .bodyValue(zenodoCommunity).exchangeToMono(mono ->
-                            mono.statusCode().isError() ?
-                                    mono.createException().flatMap(Mono::error) :
-                                    mono.bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})).block();
+            try {
+                var links = (LinkedHashMap<String, String>) publishResponse.getOrDefault(ZENODO_LINKS, null);
+                webClient.post().uri(links.get(ZENODO_LINKS_SELF) + "/communities?access_token=" + zenodoToken).headers(httpHeaders -> {
+                            httpHeaders.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
+                            httpHeaders.setContentType(MediaType.APPLICATION_JSON);
+                        })
+                        .bodyValue(zenodoCommunity).exchangeToMono(mono ->
+                                mono.statusCode().isError() ?
+                                        mono.createException().flatMap(Mono::error) :
+                                        mono.bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})).block();
+            } catch (Exception e) {
+                logger.warn("Failed to add community entry '{}': {}", communityId, e.getMessage());
+            }
         }
     }
 
@@ -375,13 +397,15 @@ public class ZenodoDepositServiceImpl implements ZenodoDepositService {
     }
     
     private WebClient getWebClient(){
+        HttpClient httpClient = HttpClient.create().followRedirect(true);
+
         return WebClient.builder().filters(exchangeFilterFunctions -> {
             exchangeFilterFunctions.add(logRequest());
             exchangeFilterFunctions.add(logResponse());
         }).codecs(codecs -> codecs
                 .defaultCodecs()
                 .maxInMemorySize(this.zenodoServiceProperties.getMaxInMemorySizeInBytes())
-        ).build();
+        ).clientConnector(new ReactorClientHttpConnector(httpClient)).build();
     }
 
     private static ExchangeFilterFunction logRequest() {
