@@ -1,6 +1,5 @@
 package org.opencdmp.deposit.zenodorepository.service.zenodo;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import gr.cite.tools.exception.MyApplicationException;
 import gr.cite.tools.logging.LoggerService;
 import gr.cite.tools.logging.MapLogEntry;
@@ -33,6 +32,7 @@ import org.springframework.web.reactive.function.client.ExchangeFilterFunction;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 import reactor.netty.http.client.HttpClient;
+import tools.jackson.databind.ObjectMapper;
 
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -77,7 +77,7 @@ public class ZenodoDepositServiceImpl implements ZenodoDepositService {
     }
 
     @Override
-    public String deposit(PlanDepositModel planDepositModel) throws Exception {
+    public String deposit(PlanDepositModel planDepositModel) {
 
         DepositConfiguration depositConfiguration = this.getConfiguration();
 
@@ -142,7 +142,11 @@ public class ZenodoDepositServiceImpl implements ZenodoDepositService {
             } catch (HttpClientErrorException | HttpServerErrorException ex) {
                 logger.error(ex.getMessage(), ex);
                 Map<String, String> parsedException = objectMapper.readValue(ex.getResponseBodyAsString(), Map.class);
-                throw new IOException(parsedException.get("message"), ex);
+                try {
+                    throw new IOException(parsedException.get("message"), ex);
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
+                }
             }
 
         }
@@ -167,7 +171,7 @@ public class ZenodoDepositServiceImpl implements ZenodoDepositService {
         return namePart + "." + extension;
     }
 
-    private static LinkedHashMap<String, String> depositNewVersion(String zenodoToken, String zenodoUrl, String previousDOI, WebClient zenodoClient, ZenodoDeposit deposit) throws Exception {
+    private static LinkedHashMap<String, String> depositNewVersion(String zenodoToken, String zenodoUrl, String previousDOI, WebClient zenodoClient, ZenodoDeposit deposit) {
         Map<String, Object> createResponse;
         LinkedHashMap<String, String> links;
 

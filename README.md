@@ -12,6 +12,8 @@ This service integrates with the OpenCDMP platform to provide deposit functional
 - ✅ OAuth2 authentication for user deposits
 - ✅ System-based and user-based depositions
 
+**Supported REST API [InvenioRDM](https://inveniordm.docs.cern.ch/) version:** v12.0
+
 ---
 
 ## Quick start

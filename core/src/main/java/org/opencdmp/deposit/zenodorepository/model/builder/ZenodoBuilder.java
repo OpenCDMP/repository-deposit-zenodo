@@ -16,6 +16,7 @@ import org.opencdmp.commonmodels.models.planblueprint.SectionModel;
 import org.opencdmp.commonmodels.models.planreference.PlanReferenceModel;
 import org.opencdmp.commonmodels.models.reference.ReferenceFieldModel;
 import org.opencdmp.commonmodels.models.reference.ReferenceModel;
+import org.opencdmp.commonmodels.models.referencetype.ReferenceTypeFieldModel;
 import org.opencdmp.deposit.zenodorepository.configuration.funder.FunderProperties;
 import org.opencdmp.deposit.zenodorepository.configuration.pid.PidProperties;
 import org.opencdmp.deposit.zenodorepository.configuration.programminglanguages.ProgrammingLanguagesProperties;
@@ -89,6 +90,11 @@ public class ZenodoBuilder {
     private static final String SEMANTIC_CONFERENCE_WEBSITE = "zenodo.conference.website";
     private static final String SEMANTIC_CONFERENCE_SESSION = "zenodo.conference.session";
     private static final String SEMANTIC_CONFERENCE_PART = "zenodo.conference.part";
+
+    private static final String SEMANTIC_LICENSE_LINK = "zenodo.metadata.rights.link";
+
+    private static final String SEMANTIC_CONTRIBUTORS_GIVEN_NAME = "zenodo.metadata.contributors.person_or_org.given_name";
+    private static final String SEMANTIC_CONTRIBUTORS_FAMILY_NAME = "zenodo.metadata.contributors.person_or_org.family_name";
 
     private final TemplateFieldSearcherService templateFieldSearcherService;
     private final PidProperties pidProperties;
@@ -487,8 +493,14 @@ public class ZenodoBuilder {
                 contributor.setRole(new ZenodoCreator.Role(CONTRIBUTOR_TYPE_RESEARCHER));
 
                 ZenodoCreator.PersonOrOrg personOrOrg = new ZenodoCreator.PersonOrOrg();
-                personOrOrg.setFamilyName(researcher.getLabel());
-                personOrOrg.setGivenName("");
+                personOrOrg.setName(researcher.getLabel());
+
+                personOrOrg.setFamilyName(this.getReferenceFieldValueFromSemantic(researcher, SEMANTIC_CONTRIBUTORS_FAMILY_NAME));
+                if (personOrOrg.getFamilyName() == null || personOrOrg.getFamilyName().isBlank()) personOrOrg.setFamilyName(researcher.getLabel());
+
+                personOrOrg.setGivenName(this.getReferenceFieldValueFromSemantic(researcher, SEMANTIC_CONTRIBUTORS_GIVEN_NAME));
+                if (personOrOrg.getGivenName() == null || personOrOrg.getGivenName().isBlank()) personOrOrg.setGivenName("");
+
                 personOrOrg.setType(PERSON_OR_ORG_TYPE);
 
                 if (researcher.getSource().equalsIgnoreCase(zenodoServiceProperties.getOrcidResearcherSourceCode())) {
@@ -982,6 +994,7 @@ public class ZenodoBuilder {
             description.setEn(identifier.getDescription());
             license.setDescription(description);
             license.setTitle(title);
+            license.setLink(this.getReferenceFieldValueFromSemantic(identifier, SEMANTIC_LICENSE_LINK));
             return license;
         }
     }
@@ -1052,6 +1065,20 @@ public class ZenodoBuilder {
         PropertyDefinitionFieldSetModel propertyDefinitionFieldSetModel =  descriptionTemplateModel.getFieldSets().getOrDefault(fieldSetModel.getId(), null);
         if (propertyDefinitionFieldSetModel != null && propertyDefinitionFieldSetModel.getItems() != null) return propertyDefinitionFieldSetModel.getItems();
         return items;
+    }
+
+    private String getReferenceFieldValueFromSemantic(ReferenceModel referenceModel, String semantic) {
+        if (referenceModel == null || referenceModel.getDefinition() == null ||referenceModel.getDefinition().getFields() == null || referenceModel.getDefinition().getFields().isEmpty()
+                || referenceModel.getType() == null || referenceModel.getType().getDefinition().getFields() == null || referenceModel.getType().getDefinition().getFields().isEmpty()
+                || semantic == null) return null;
+
+        ReferenceTypeFieldModel referenceTypeFieldModel = referenceModel.getType().getDefinition().getFields().stream().filter(x -> x.getSemantics() != null && !x.getSemantics().isEmpty() && x.getSemantics().contains(semantic)).findFirst().orElse(null);
+        if (referenceTypeFieldModel == null || referenceTypeFieldModel.getCode() == null) return null;
+
+        ReferenceFieldModel referenceFieldModel = referenceModel.getDefinition().getFields().stream().filter(x -> x.getCode() != null && x.getCode().equals(referenceTypeFieldModel.getCode())).findFirst().orElse(null);
+        if (referenceFieldModel == null) return null;
+
+        return referenceFieldModel.getValue();
     }
 
 }
