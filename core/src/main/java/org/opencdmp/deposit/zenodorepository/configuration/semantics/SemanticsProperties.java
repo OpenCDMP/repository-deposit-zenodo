@@ -14,8 +14,6 @@ public class SemanticsProperties {
 
     private List<String> alternateIdentifiersScheme;
 
-    private List<String> conference;
-
     public List<String> getRelatedIdentifiers() {
         return relatedIdentifiers;
     }
@@ -46,13 +44,5 @@ public class SemanticsProperties {
 
     public void setAlternateIdentifiersScheme(List<String> alternateIdentifiersScheme) {
         this.alternateIdentifiersScheme = alternateIdentifiersScheme;
-    }
-
-    public List<String> getConference() {
-        return conference;
-    }
-
-    public void setConference(List<String> conference) {
-        this.conference = conference;
     }
 }

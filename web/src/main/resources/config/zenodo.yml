@@ -23,7 +23,203 @@ zenodo:
     redirect-uri: ${DEPOSIT_ZENODO_REDIRECT_URL}
     has-logo: ${DEPOSIT_ZENODO_HAS_LOGO:true}
     useSharedStorage: ${DEPOSIT_ZENODO_USE_SHARED_STORAGE:false}
+    supports-preview: ${DEPOSIT_ZENODO_SUPPORTS_PREVIEW:true}
+    uploaded-files:
+      - PlanDocument
+      - RdaJson
+      - SupportingFiles
+    oauth-scope: "deposit:write deposit:actions user:email"
     configuration-fields:
+      - code: publish-ways
+        type: 3
+        label: "Ways to publish"
+        group: "Who publishes"
+        description: "Which accounts users can publish under."
+        defaultValue: "both"
+        options:
+          - label: "The organisation's account and users' own accounts"
+            value: "both"
+          - label: "Only the organisation's account"
+            value: "organisation"
+          - label: "Only users' own accounts"
+            value: "own"
+      - code: publish-preselected
+        type: 3
+        label: "Preselected"
+        group: "Who publishes"
+        description: "The choice users see selected when both are allowed. Users with saved credentials always start on their own account."
+        defaultValue: "own"
+        options:
+          - label: "Users' own accounts"
+            value: "own"
+          - label: "The organisation's account"
+            value: "organisation"
+      - code: organisation-account-name
+        type: 0
+        label: "Organisation account name"
+        group: "Who publishes"
+        description: "What users see in “Publish as”. Empty: “The organisation's Zenodo account”."
+      - code: organisation-access-token
+        type: 0
+        label: "Access token"
+        group: "Organisation account"
+        description: "A personal access token of the organisation's Zenodo account, with the deposit:write and deposit:actions scopes. Empty: the installation's account is used."
+        authInfo: true
+      - code: community
+        type: 0
+        label: "Community"
+        group: "Zenodo record"
+        description: "The identifier of the Zenodo community records are submitted to. A community set in the blueprint or a template still wins. Empty: the installation's value."
+      - code: affiliation
+        type: 0
+        label: "Affiliation"
+        group: "Zenodo record"
+        description: "The affiliation of the creators when the plan has no organisations. Empty: the installation's value."
+      - code: publisher
+        type: 0
+        label: "Publisher"
+        group: "Zenodo record"
+        description: "The publisher of the records. Empty: the installation's value."
+      - code: resource-type
+        type: 0
+        label: "Resource type"
+        group: "Zenodo record"
+        description: "The Zenodo resource type of the records, such as publication-datamanagementplan. Empty: the installation's value."
+      - code: default-licence
+        type: 0
+        label: "Default licence"
+        group: "Zenodo record"
+        description: "The Zenodo licence id, such as cc-by-4.0, used when the plan has no licence. Empty: no licence."
+      - code: copyright
+        type: 6
+        label: "Copyright"
+        group: "Zenodo record"
+        description: "The copyright statement of the records. Empty: none."
+      - code: default-language
+        type: 0
+        label: "Default language"
+        group: "Zenodo record"
+        description: "The ISO 639-3 code of the records' language, such as eng, when the plan maps none. Empty: no language."
+      - code: additional-communities
+        type: 7
+        label: "Additional communities"
+        group: "Zenodo record"
+        description: "The identifiers of more Zenodo communities a new record is submitted to, besides the main community. Users can add more in the review."
+      - code: authors-from-members
+        type: 3
+        label: "Authors from plan members"
+        group: "Zenodo record"
+        description: "Which plan members are credited as authors."
+        defaultValue: "all"
+        options:
+          - label: "Every member"
+            value: "all"
+          - label: "Owners and editors"
+            value: "contributors"
+          - label: "Owners only"
+            value: "owners"
+          - label: "None (users must add the creators in the review)"
+            value: "none"
+      - code: link-public-plan
+        type: 3
+        label: "Link the public plan page"
+        group: "Zenodo record"
+        description: "Adds the plan's public OpenCDMP page to the record when the plan is public."
+        defaultValue: "true"
+        options:
+          - label: "Yes"
+            value: "true"
+          - label: "No"
+            value: "false"
+      - code: deposit-files
+        type: 7
+        label: "Files to deposit"
+        group: "Files"
+        description: "Which files are uploaded with the record. Empty: all of them."
+        options:
+          - label: "Plan document"
+            value: "PlanDocument"
+          - label: "Machine-actionable plan (RDA JSON)"
+            value: "RdaJson"
+          - label: "Supporting files"
+            value: "SupportingFiles"
+      - code: reference-type-licences
+        type: 0
+        label: "Licences"
+        group: "Reference types"
+        description: "The code of the reference type that holds the plan's licences. Empty: the installation's value."
+      - code: reference-type-funders
+        type: 0
+        label: "Funders"
+        group: "Reference types"
+        description: "The code of the reference type that holds the plan's funders. Empty: the installation's value."
+      - code: reference-type-grants
+        type: 0
+        label: "Grants"
+        group: "Reference types"
+        description: "The code of the reference type that holds the plan's grants. Empty: the installation's value."
+      - code: reference-type-organisations
+        type: 0
+        label: "Organisations"
+        group: "Reference types"
+        description: "The code of the reference type that holds the plan's organisations. Empty: the installation's value."
+      - code: reference-type-researchers
+        type: 0
+        label: "Researchers"
+        group: "Reference types"
+        description: "The code of the reference type that holds the plan's researchers. Empty: the installation's value."
+      - code: review-hidden-sections
+        type: 7
+        label: "Hidden sections"
+        group: "Review"
+        description: "Sections users never see in the review. Values your plans map into them are still published."
+        options:
+          - label: "Basic information"
+            value: "basic-information"
+          - label: "License and access"
+            value: "license-access"
+          - label: "Creators"
+            value: "creators"
+          - label: "Contributors"
+            value: "contributors"
+          - label: "Funding"
+            value: "funding"
+          - label: "Additional titles"
+            value: "additional-titles"
+          - label: "Dates"
+            value: "dates"
+          - label: "Alternate identifiers"
+            value: "alternate-identifiers"
+          - label: "Publishing information"
+            value: "publishing-information"
+          - label: "Conference"
+            value: "conference"
+          - label: "Software"
+            value: "software"
+          - label: "Additional descriptions"
+            value: "additional-descriptions"
+          - label: "Domain specific fields"
+            value: "domain-specific"
+          - label: "Additional information"
+            value: "additional-information"
+      - code: review-locked
+        type: 7
+        label: "Values users can't change"
+        group: "Review"
+        description: "These settings show in the review as set by the organisation, and users' edits to them are ignored."
+        options:
+          - label: "Community"
+            value: "community"
+          - label: "Publisher"
+            value: "publisher"
+          - label: "Resource type"
+            value: "resource-type"
+          - label: "Default licence"
+            value: "default-licence"
+          - label: "Default language"
+            value: "default-language"
+          - label: "Copyright"
+            value: "copyright"
     user-configuration-fields:
       - code: zenodo-access-token
         type: 0
@@ -38,4 +234,15 @@ zenodo:
   domain: ${OPENCDMP_DOMAIN}
   logo: ${DEPOSIT_ZENODO_LOGO_PATH:classpath:zenodo.jpg}
   resourceTypeId: ${DEPOSIT_ZENODO_RESOURCE_TYPE_ID:publication-datamanagementplan}
-  publisherName: ${DEPOSIT_ZENODO_PUBLISHER_NAME:Zenodο}
+  publisherName: ${DEPOSIT_ZENODO_PUBLISHER_NAME:Zenodo}
+# Deployment-specific extra custom fields exposed in the deposit preview as Manual fields.
+# Keys must be custom fields the target Zenodo instance registers (unknown keys are silently
+# dropped by Zenodo). type: text | textarea | tags | boolean | number | date (default text).
+#preview-extra-fields:
+#    fields:
+#        - key: "dwc:family"
+#          label: "Family (Darwin Core)"
+#          type: tags
+#        - key: "dwc:genus"
+#          label: "Genus (Darwin Core)"
+#          type: tags

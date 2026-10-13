@@ -1,10 +1,14 @@
 package org.opencdmp.deposit.zenodorepository.model;
 
+import com.fasterxml.jackson.annotation.JsonAnyGetter;
+import com.fasterxml.jackson.annotation.JsonAnySetter;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 @JsonIgnoreProperties(ignoreUnknown = true)
 @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -16,8 +20,8 @@ public class ZenodoDepositCustomFields {
     @JsonProperty("imprint:imprint")
     private Imprint imprint;
 
-    @JsonProperty("thesis:university")
-    private String thesisUniversity;
+    @JsonProperty("thesis:thesis")
+    private Thesis thesis;
 
     @JsonProperty("meeting:meeting")
     private Conference conference;
@@ -30,6 +34,23 @@ public class ZenodoDepositCustomFields {
 
     @JsonProperty("code:developmentStatus")
     private Code codeDevelopmentStatus;
+
+    /**
+     * Instance-specific custom fields not modeled above (e.g. domain fields such as
+     * dwc:*), declared per deployment via preview-extra-fields configuration.
+     * Serialized flat into custom_fields; unknown keys are silently dropped by Zenodo.
+     */
+    private final Map<String, Object> additionalProperties = new LinkedHashMap<>();
+
+    @JsonAnyGetter
+    public Map<String, Object> getAdditionalProperties() {
+        return additionalProperties;
+    }
+
+    @JsonAnySetter
+    public void setAdditionalProperty(String key, Object value) {
+        this.additionalProperties.put(key, value);
+    }
 
     public Journal getJournal() {
         return journal;
@@ -55,12 +76,12 @@ public class ZenodoDepositCustomFields {
         this.conference = conference;
     }
 
-    public String getThesisUniversity() {
-        return thesisUniversity;
+    public Thesis getThesis() {
+        return thesis;
     }
 
-    public void setThesisUniversity(String thesisUniversity) {
-        this.thesisUniversity = thesisUniversity;
+    public void setThesis(Thesis thesis) {
+        this.thesis = thesis;
     }
 
     public String getCodeRepository() {
@@ -148,6 +169,16 @@ public class ZenodoDepositCustomFields {
         private String place;
 
         private String pages;
+
+        private String edition;
+
+        public String getEdition() {
+            return edition;
+        }
+
+        public void setEdition(String edition) {
+            this.edition = edition;
+        }
 
         public String getTitle() {
             return title;
@@ -252,6 +283,62 @@ public class ZenodoDepositCustomFields {
 
         public void setSessionPart(String sessionPart) {
             this.sessionPart = sessionPart;
+        }
+    }
+
+    /** The thesis:thesis nested custom field (InvenioRDM replaced the flat thesis:university with this object). */
+    public static class Thesis {
+
+        private String university;
+
+        private String department;
+
+        private String type;
+
+        @JsonProperty("date_submitted")
+        private String dateSubmitted;
+
+        @JsonProperty("date_defended")
+        private String dateDefended;
+
+        public String getUniversity() {
+            return university;
+        }
+
+        public void setUniversity(String university) {
+            this.university = university;
+        }
+
+        public String getDepartment() {
+            return department;
+        }
+
+        public void setDepartment(String department) {
+            this.department = department;
+        }
+
+        public String getType() {
+            return type;
+        }
+
+        public void setType(String type) {
+            this.type = type;
+        }
+
+        public String getDateSubmitted() {
+            return dateSubmitted;
+        }
+
+        public void setDateSubmitted(String dateSubmitted) {
+            this.dateSubmitted = dateSubmitted;
+        }
+
+        public String getDateDefended() {
+            return dateDefended;
+        }
+
+        public void setDateDefended(String dateDefended) {
+            this.dateDefended = dateDefended;
         }
     }
 

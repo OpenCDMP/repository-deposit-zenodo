@@ -6,13 +6,13 @@ import gr.cite.tools.logging.MapLogEntry;
 import org.opencdmp.commonmodels.enums.PlanAccessType;
 import org.opencdmp.commonmodels.models.PlanUserModel;
 import org.opencdmp.commonmodels.models.description.*;
-import org.opencdmp.commonmodels.models.descriptiotemplate.DefinitionModel;
-import org.opencdmp.commonmodels.models.descriptiotemplate.FieldSetModel;
-import org.opencdmp.commonmodels.models.descriptiotemplate.fielddata.RadioBoxDataModel;
-import org.opencdmp.commonmodels.models.descriptiotemplate.fielddata.SelectDataModel;
-import org.opencdmp.commonmodels.models.plan.PlanBlueprintValueModel;
+import org.opencdmp.commonmodels.models.planblueprintdescriptiontemplatefields.FieldSetModel;
+import org.opencdmp.commonmodels.models.planblueprintdescriptiontemplatefields.fielddata.RadioBoxDataModel;
+import org.opencdmp.commonmodels.models.planblueprintdescriptiontemplatefields.fielddata.SelectDataModel;
 import org.opencdmp.commonmodels.models.plan.PlanModel;
-import org.opencdmp.commonmodels.models.planblueprint.SectionModel;
+import org.opencdmp.commonmodels.models.plandescriptionfields.FieldModel;
+import org.opencdmp.commonmodels.models.plandescriptionfields.PropertyDefinitionFieldSetItemModel;
+import org.opencdmp.commonmodels.models.plandescriptionfields.PropertyDefinitionFieldSetModel;
 import org.opencdmp.commonmodels.models.planreference.PlanReferenceModel;
 import org.opencdmp.commonmodels.models.reference.ReferenceFieldModel;
 import org.opencdmp.commonmodels.models.reference.ReferenceModel;
@@ -25,8 +25,10 @@ import org.opencdmp.deposit.zenodorepository.enums.ZenodoAccessRight;
 import org.opencdmp.deposit.zenodorepository.enums.ZenodoAdditionalTitleIdType;
 import org.opencdmp.deposit.zenodorepository.model.*;
 import org.opencdmp.deposit.zenodorepository.service.descriptiontemplatesearcher.TemplateFieldSearcherService;
+import org.opencdmp.deposit.zenodorepository.service.planblueprintsearcher.PlanBlueprintFieldSearcherService;
 import org.opencdmp.deposit.zenodorepository.service.zenodo.ZenodoDepositServiceImpl;
 import org.opencdmp.deposit.zenodorepository.service.zenodo.ZenodoServiceProperties;
+import org.opencdmp.depositbase.repository.DepositPluginSettings;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.config.ConfigurableBeanFactory;
@@ -55,6 +57,19 @@ public class ZenodoBuilder {
     private static final String CONTRIBUTOR_TYPE_RESEARCHER = "researcher";
     private static final String CONTRIBUTOR_TYPE_PROJECT_MANAGER = "projectmember";
     private static final String PERSON_OR_ORG_TYPE = "personal";
+
+    private static final String SETTING_COMMUNITY = "community";
+    private static final String SETTING_AFFILIATION = "affiliation";
+    private static final String SETTING_PUBLISHER = "publisher";
+    private static final String SETTING_RESOURCE_TYPE = "resource-type";
+    private static final String SETTING_DEFAULT_LICENCE = "default-licence";
+    private static final String SETTING_COPYRIGHT = "copyright";
+    private static final String SETTING_DEFAULT_LANGUAGE = "default-language";
+    private static final String SETTING_LICENCES_TYPE = "reference-type-licences";
+    private static final String SETTING_FUNDERS_TYPE = "reference-type-funders";
+    private static final String SETTING_GRANTS_TYPE = "reference-type-grants";
+    private static final String SETTING_ORGANISATIONS_TYPE = "reference-type-organisations";
+    private static final String SETTING_RESEARCHERS_TYPE = "reference-type-researchers";
 
     private static final String SEMANTIC_COMMUNITY = "zenodo.community";
     private static final String SEMANTIC_PUBLICATION_DATE = "zenodo.publication_date";
@@ -96,6 +111,7 @@ public class ZenodoBuilder {
     private static final String SEMANTIC_CONTRIBUTORS_GIVEN_NAME = "zenodo.metadata.contributors.person_or_org.given_name";
     private static final String SEMANTIC_CONTRIBUTORS_FAMILY_NAME = "zenodo.metadata.contributors.person_or_org.family_name";
 
+    private final PlanBlueprintFieldSearcherService blueprintFieldSearcherService;
     private final TemplateFieldSearcherService templateFieldSearcherService;
     private final PidProperties pidProperties;
     private final SemanticsProperties semanticsProperties;
@@ -104,7 +120,8 @@ public class ZenodoBuilder {
     private final ProgrammingLanguagesProperties programmingLanguagesProperties;
 
     @Autowired
-    public ZenodoBuilder(TemplateFieldSearcherService templateFieldSearcherService, PidProperties pidProperties, SemanticsProperties semanticsProperties, FunderProperties funderProperties, ZenodoServiceProperties zenodoServiceProperties, ProgrammingLanguagesProperties programmingLanguagesProperties){
+    public ZenodoBuilder(PlanBlueprintFieldSearcherService blueprintFieldSearcherService, TemplateFieldSearcherService templateFieldSearcherService, PidProperties pidProperties, SemanticsProperties semanticsProperties, FunderProperties funderProperties, ZenodoServiceProperties zenodoServiceProperties, ProgrammingLanguagesProperties programmingLanguagesProperties){
+        this.blueprintFieldSearcherService = blueprintFieldSearcherService;
         this.templateFieldSearcherService = templateFieldSearcherService;
         this.pidProperties = pidProperties;
         this.semanticsProperties = semanticsProperties;
@@ -114,62 +131,59 @@ public class ZenodoBuilder {
     }
 
     public String getCommunity(PlanModel planModel){
-        if (planModel == null) return zenodoServiceProperties.getCommunity();
+        String fallback = this.settings(planModel).text(SETTING_COMMUNITY, zenodoServiceProperties.getCommunity());
+        if (planModel == null) return fallback;
 
-        //plan blueprint semantics
-        List<org.opencdmp.commonmodels.models.planblueprint.FieldModel> blueprintFieldsWithSemantic = this.getFieldOfSemantic(planModel, SEMANTIC_COMMUNITY);
-        for (org.opencdmp.commonmodels.models.planblueprint.FieldModel field: blueprintFieldsWithSemantic) {
-            PlanBlueprintValueModel planBlueprintValueModel = this.getPlanBlueprintValue(planModel, field.getId());
-            if (planBlueprintValueModel != null) {
-                if (planBlueprintValueModel.getValue() != null && !planBlueprintValueModel.getValue().isBlank()) return planBlueprintValueModel.getValue();
-            }
-        }
+        String semantic = SEMANTIC_COMMUNITY;
+        List<org.opencdmp.commonmodels.models.planblueprintdescriptiontemplatefields.FieldModel> fieldsWithSemantics = this.findSchematicValues(semantic, planModel.getPlanBlueprint().getDefinition().getAllField());
+        Set<String> values = extractSchematicValues(fieldsWithSemantics, planModel.getProperties().getFieldSets());
+        String value = values.stream().findFirst().orElse(null);
+        if (value != null) return value;
 
         //description template
         for (DescriptionModel descriptionModel: planModel.getDescriptions()) {
-            List<org.opencdmp.commonmodels.models.descriptiotemplate.FieldModel> fieldsWithSemantics = this.findSchematicValues(SEMANTIC_COMMUNITY, descriptionModel.getDescriptionTemplate().getDefinition());
-            Set<String> values = extractSchematicValues(fieldsWithSemantics, descriptionModel.getProperties());
-            String value = values.stream().findFirst().orElse(null);
+            fieldsWithSemantics = this.findSchematicValues(semantic, descriptionModel.getDescriptionTemplate().getDefinition().getAllField());
+            values = extractSchematicValues(fieldsWithSemantics, descriptionModel.getProperties().getFieldSets());
+            value = values.stream().findFirst().orElse(null);
             if (value != null) return value;
         }
 
-        return zenodoServiceProperties.getCommunity();
+        return fallback;
+    }
+
+    private DepositPluginSettings settings(PlanModel planModel) {
+        return DepositPluginSettings.of(planModel, this.zenodoServiceProperties.getDepositConfiguration());
     }
 
     public ZenodoDeposit build(PlanModel plan) {
         ZenodoDeposit deposit = new ZenodoDeposit();
+        DepositPluginSettings settings = this.settings(plan);
 
         this.applyAccess(plan, deposit);
-        this.applyZenodoRelator(plan, deposit);
+        this.applyZenodoRelator(plan, deposit, settings);
 
         deposit.getMetadata().setTitle(plan.getLabel());
-        deposit.getMetadata().setResourceType(new ZenodoResourceType(this.zenodoServiceProperties.getResourceTypeId()));
-        deposit.getMetadata().setPublisher(this.zenodoServiceProperties.getPublisherName());
+        deposit.getMetadata().setResourceType(new ZenodoResourceType(settings.text(SETTING_RESOURCE_TYPE, this.zenodoServiceProperties.getResourceTypeId())));
+        deposit.getMetadata().setPublisher(settings.text(SETTING_PUBLISHER, this.zenodoServiceProperties.getPublisherName()));
         deposit.getMetadata().setPublicationDate(DateTimeFormatter.ofPattern("yyyy-MM-dd").withZone(ZoneId.systemDefault()).format(Instant.now()));
         deposit.getMetadata().setDescription((plan.getDescription() != null && !plan.getDescription().isEmpty() ? plan.getDescription() : "<p></p>"));
         deposit.getMetadata().setVersion(String.valueOf(plan.getVersion()));
 
-        List<org.opencdmp.commonmodels.models.planblueprint.FieldModel> fieldOfSemantic = this.getFieldOfSemantic(plan, SEMANTIC_PUBLICATION_DATE);
-        if (!fieldOfSemantic.isEmpty()){
-            PlanBlueprintValueModel planBlueprintValueModel = this.getPlanBlueprintValue(plan, fieldOfSemantic.getFirst().getId());
-            if (planBlueprintValueModel != null && planBlueprintValueModel.getDateValue() != null) {
-                deposit.getMetadata().setPublicationDate(DateTimeFormatter.ofPattern("yyyy-MM-dd").withZone(ZoneId.systemDefault()).format(planBlueprintValueModel.getDateValue()));
-            } else if (planBlueprintValueModel != null && planBlueprintValueModel.getValue() != null && !planBlueprintValueModel.getValue().isBlank()){
-                try {
-                    Instant instant = Instant.parse(planBlueprintValueModel.getValue());
-                    deposit.getMetadata().setPublicationDate(DateTimeFormatter.ofPattern("yyyy-MM-dd").withZone(ZoneId.systemDefault()).format(instant));
-                }catch (Exception e){
-                    logger.error(e.getMessage(), e);
-                }
+        for (String value: this.applyListValue(plan, SEMANTIC_PUBLICATION_DATE)) {
+            String publicationDate = this.parsePublicationDate(value);
+            if (publicationDate != null) {
+                deposit.getMetadata().setPublicationDate(publicationDate);
+                break;
             }
         }
 
-        this.applyIsIdenticalTo(plan, deposit);
-        this.applyLicenses(plan, deposit);
-        this.applyResearchers(plan, deposit);
-        this.applyFunding(plan, deposit);
-        this.applyCreators(plan, deposit);
-        this.applyLanguages(plan, deposit);
+        if (settings.linkPublicPlan()) this.applyIsIdenticalTo(plan, deposit);
+        this.applyLicenses(plan, deposit, settings);
+        this.applyResearchers(plan, deposit, settings);
+        this.applyFunding(plan, deposit, settings);
+        this.applyCreators(plan, deposit, settings);
+        this.applyLanguages(plan, deposit, settings.text(SETTING_DEFAULT_LANGUAGE));
+        deposit.getMetadata().setCopyright(settings.text(SETTING_COPYRIGHT));
         this.applySubjects(plan, deposit);
         this.applyAdditionalTitle(plan, deposit);
         this.applyReferences(plan, deposit);
@@ -210,15 +224,18 @@ public class ZenodoBuilder {
         deposit.setAccess(access);
     }
 
-    private Set<String> extractSchematicValues(List<org.opencdmp.commonmodels.models.descriptiotemplate.FieldModel> fields, PropertyDefinitionModel propertyDefinition) {
-        Set<String> values = new HashSet<>();
-        for (org.opencdmp.commonmodels.models.descriptiotemplate.FieldModel field : fields) {
+    private Set<String> extractSchematicValues(List<org.opencdmp.commonmodels.models.planblueprintdescriptiontemplatefields.FieldModel> fields, Map<String, PropertyDefinitionFieldSetModel> fieldSets) {
+        Set<String> values = new LinkedHashSet<>();
+        for (org.opencdmp.commonmodels.models.planblueprintdescriptiontemplatefields.FieldModel field : fields) {
             if (field.getData() == null) continue;
-            List<FieldModel> valueFields = this.findValueFieldsByIds(field.getId(), propertyDefinition);
+            List<FieldModel> valueFields = this.findValueFieldsByIds(field.getId(), fieldSets);
             for (FieldModel valueField : valueFields) {
                 switch (field.getData().getFieldType()) {
                     case FREE_TEXT, TEXT_AREA, RICH_TEXT_AREA -> {
                         if (valueField.getTextValue() != null && !valueField.getTextValue().isBlank()) values.add(valueField.getTextValue());
+                    }
+                    case NUMBER -> {
+                        if (valueField.getNumberValue() != null) values.add(String.valueOf(valueField.getNumberValue()));
                     }
                     case BOOLEAN_DECISION, CHECK_BOX -> {
                         if (valueField.getBooleanValue() != null) values.add(valueField.getBooleanValue().toString());
@@ -241,7 +258,10 @@ public class ZenodoBuilder {
                             SelectDataModel selectDataModel = (SelectDataModel)field.getData();
                             if (selectDataModel != null && selectDataModel.getOptions() != null && !selectDataModel.getOptions().isEmpty()){
                                 for (SelectDataModel.OptionModel option : selectDataModel.getOptions()){
-                                    if (valueField.getTextListValue().contains(option.getValue()) || valueField.getTextListValue().contains(option.getLabel())) values.add(option.getLabel());
+                                    if (valueField.getTextListValue().contains(option.getValue()) || valueField.getTextListValue().contains(option.getLabel())) {
+                                        String optionValue = this.optionValueOrLabel(option.getValue(), option.getLabel());
+                                        if (optionValue != null) values.add(optionValue);
+                                    }
                                 }
                             }
                         }
@@ -251,7 +271,10 @@ public class ZenodoBuilder {
                             RadioBoxDataModel radioBoxModel = (RadioBoxDataModel)field.getData();
                             if (radioBoxModel != null && radioBoxModel.getOptions() != null && !radioBoxModel.getOptions().isEmpty()){
                                 for (RadioBoxDataModel.RadioBoxOptionModel option : radioBoxModel.getOptions()){
-                                    if (valueField.getTextListValue().contains(option.getValue()) || valueField.getTextListValue().contains(option.getLabel())) values.add(option.getLabel());
+                                    if (valueField.getTextListValue().contains(option.getValue()) || valueField.getTextListValue().contains(option.getLabel())) {
+                                        String optionValue = this.optionValueOrLabel(option.getValue(), option.getLabel());
+                                        if (optionValue != null) values.add(optionValue);
+                                    }
                                 }
                             }
                         }
@@ -274,12 +297,15 @@ public class ZenodoBuilder {
         return values;
     }
 
-    private String extractSchematicSingleValue(org.opencdmp.commonmodels.models.descriptiotemplate.FieldModel field, org.opencdmp.commonmodels.models.description.FieldModel valueField) {
+    private String extractSchematicSingleValue(org.opencdmp.commonmodels.models.planblueprintdescriptiontemplatefields.FieldModel field, org.opencdmp.commonmodels.models.plandescriptionfields.FieldModel valueField) {
         if (field == null || field.getData() == null) return null;
 
         switch (field.getData().getFieldType()) {
             case FREE_TEXT, TEXT_AREA, RICH_TEXT_AREA -> {
                 if (valueField.getTextValue() != null && !valueField.getTextValue().isBlank()) return valueField.getTextValue();
+            }
+            case NUMBER -> {
+                if (valueField.getNumberValue() != null) return String.valueOf(valueField.getNumberValue());
             }
             case BOOLEAN_DECISION, CHECK_BOX -> {
                 if (valueField.getBooleanValue() != null) return valueField.getBooleanValue().toString();
@@ -302,7 +328,7 @@ public class ZenodoBuilder {
                     SelectDataModel selectDataModel = (SelectDataModel)field.getData();
                     if (selectDataModel != null && selectDataModel.getOptions() != null && !selectDataModel.getOptions().isEmpty()){
                         for (SelectDataModel.OptionModel option : selectDataModel.getOptions()){
-                            if (valueField.getTextListValue().contains(option.getValue()) || valueField.getTextListValue().contains(option.getLabel()))  return (option.getValue());
+                            if (valueField.getTextListValue().contains(option.getValue()) || valueField.getTextListValue().contains(option.getLabel()))  return this.optionValueOrLabel(option.getValue(), option.getLabel());
                         }
                     }
                 }
@@ -312,7 +338,7 @@ public class ZenodoBuilder {
                     RadioBoxDataModel radioBoxModel = (RadioBoxDataModel)field.getData();
                     if (radioBoxModel != null && radioBoxModel.getOptions() != null && !radioBoxModel.getOptions().isEmpty()){
                         for (RadioBoxDataModel.RadioBoxOptionModel option : radioBoxModel.getOptions()){
-                            if (valueField.getTextListValue().contains(option.getValue()) || valueField.getTextListValue().contains(option.getLabel()))  return (option.getValue());
+                            if (valueField.getTextListValue().contains(option.getValue()) || valueField.getTextListValue().contains(option.getLabel()))  return this.optionValueOrLabel(option.getValue(), option.getLabel());
                         }
                     }
                 }
@@ -334,32 +360,14 @@ public class ZenodoBuilder {
         return null;
     }
 
-    private PlanBlueprintValueModel getPlanBlueprintValue(PlanModel plan, UUID id){
-        if (plan == null || plan.getProperties() == null || plan.getProperties().getPlanBlueprintValues() == null) return null;
-        return plan.getProperties().getPlanBlueprintValues().stream().filter(x-> x.getFieldId().equals(id)).findFirst().orElse(null);
+    private List<org.opencdmp.commonmodels.models.planblueprintdescriptiontemplatefields.FieldModel> findSchematicValues(String relatedId, List<org.opencdmp.commonmodels.models.planblueprintdescriptiontemplatefields.FieldModel> fields){
+        return fields.stream().filter(x-> x.getSemantics() != null && x.getSemantics().contains(relatedId)).toList();
     }
 
-    private List<org.opencdmp.commonmodels.models.planblueprint.FieldModel> getFieldOfSemantic(PlanModel plan, String semanticKey){
-        List<org.opencdmp.commonmodels.models.planblueprint.FieldModel> fields = new ArrayList<>();
-
-        if (plan == null || plan.getPlanBlueprint() == null || plan.getPlanBlueprint().getDefinition() == null || plan.getPlanBlueprint().getDefinition().getSections() == null) return fields;
-        for (SectionModel sectionModel : plan.getPlanBlueprint().getDefinition().getSections()){
-            if (sectionModel.getFields() != null){
-                org.opencdmp.commonmodels.models.planblueprint.FieldModel fieldModel = sectionModel.getFields().stream().filter(x-> x.getSemantics() != null && x.getSemantics().contains(semanticKey)).findFirst().orElse(null);
-                if (fieldModel != null) fields.add(fieldModel);
-            }
-        }
-        return fields;
-    }
-
-    private List<org.opencdmp.commonmodels.models.descriptiotemplate.FieldModel> findSchematicValues(String relatedId, DefinitionModel definitionModel){
-        return definitionModel.getAllField().stream().filter(x-> x.getSemantics() != null && x.getSemantics().contains(relatedId)).toList();
-    }
-
-    private List<FieldModel> findValueFieldsByIds(String fieldId, PropertyDefinitionModel definitionModel){
+    private List<FieldModel> findValueFieldsByIds(String fieldId, Map<String, PropertyDefinitionFieldSetModel> fieldSets){
         List<FieldModel> models = new ArrayList<>();
-        if (definitionModel == null || definitionModel.getFieldSets() == null || definitionModel.getFieldSets().isEmpty()) return models;
-        for (PropertyDefinitionFieldSetModel propertyDefinitionFieldSetModel : definitionModel.getFieldSets().values()){
+        if (fieldSets == null || fieldSets.isEmpty()) return models;
+        for (PropertyDefinitionFieldSetModel propertyDefinitionFieldSetModel : fieldSets.values()){
             if (propertyDefinitionFieldSetModel == null ||propertyDefinitionFieldSetModel.getItems() == null || propertyDefinitionFieldSetModel.getItems().isEmpty()) continue;
             for (PropertyDefinitionFieldSetItemModel propertyDefinitionFieldSetItemModel : propertyDefinitionFieldSetModel.getItems()){
                 if (propertyDefinitionFieldSetItemModel == null ||propertyDefinitionFieldSetItemModel.getFields() == null || propertyDefinitionFieldSetItemModel.getFields().isEmpty()) continue;
@@ -372,13 +380,16 @@ public class ZenodoBuilder {
         return models;
     }
 
-    private List<ZenodoRelator> buildZenodoRelators(List<org.opencdmp.commonmodels.models.descriptiotemplate.FieldModel> fields, PropertyDefinitionModel propertyDefinition, List<String> acceptedPidTypes, String relatedId) {
+    private List<ZenodoRelator> buildZenodoRelators(List<org.opencdmp.commonmodels.models.planblueprintdescriptiontemplatefields.FieldModel> fields, Map<String, PropertyDefinitionFieldSetModel> fieldSets, List<String> acceptedPidTypes, String relatedId, DepositPluginSettings settings) {
         List<ZenodoRelator> relatedIdentifier = new ArrayList<>();
-        for (org.opencdmp.commonmodels.models.descriptiotemplate.FieldModel field : fields) {
+        String organisationsType = settings.text(SETTING_ORGANISATIONS_TYPE, zenodoServiceProperties.getOrganizationReferenceCode());
+        String researchersType = settings.text(SETTING_RESEARCHERS_TYPE, zenodoServiceProperties.getResearcherReferenceCode());
+        for (org.opencdmp.commonmodels.models.planblueprintdescriptiontemplatefields.FieldModel field : fields) {
             if (field.getData() == null) continue;
-            List<FieldModel> valueFields = this.findValueFieldsByIds(field.getId(), propertyDefinition);
-            ZenodoRelator zenodoRelator = new ZenodoRelator();
+            List<FieldModel> valueFields = this.findValueFieldsByIds(field.getId(), fieldSets);
             for (FieldModel valueField : valueFields) {
+                // one relator per answer, so every answer keeps its own identifier
+                ZenodoRelator zenodoRelator = new ZenodoRelator();
                 zenodoRelator.setIdentifier(this.extractSchematicSingleValue(field, valueField));
                 switch (field.getData().getFieldType()) {
                     case REFERENCE_TYPES -> {
@@ -387,7 +398,7 @@ public class ZenodoBuilder {
                                 if (referenceModel == null
                                         || referenceModel.getType() == null || referenceModel.getType().getCode() == null || referenceModel.getType().getCode().isBlank()
                                         || referenceModel.getDefinition() == null || referenceModel.getDefinition().getFields() == null || referenceModel.getDefinition().getFields().isEmpty()) continue;
-                                if (referenceModel.getType().getCode().equals(zenodoServiceProperties.getOrganizationReferenceCode()) || referenceModel.getType().getCode().equals(zenodoServiceProperties.getResearcherReferenceCode())) {
+                                if (referenceModel.getType().getCode().equals(organisationsType) || referenceModel.getType().getCode().equals(researchersType)) {
                                     if (referenceModel.getReference() != null && !referenceModel.getReference().isBlank()) {
                                         zenodoRelator.setIdentifier(referenceModel.getReference());
                                     }
@@ -403,18 +414,19 @@ public class ZenodoBuilder {
                     }
                 }
 
-                if( zenodoRelator.getIdentifier() != null && !zenodoRelator.getIdentifier().isEmpty()){
-                    if(field.getSemantics()!= null) {
-                        String scheme = field.getSemantics().stream().filter(this.semanticsProperties.getRelatedIdentifiersScheme() :: contains).findFirst().orElse(null);
-                        if(scheme!=null) zenodoRelator.setScheme(scheme.substring(relatedId.toLowerCase().lastIndexOf(".") + 8));
-                        else zenodoRelator.setScheme(RELATED_IDENTIFIER_SCHEME_OTHER);
-                    }else zenodoRelator.setScheme(RELATED_IDENTIFIER_SCHEME_OTHER);
+                if (zenodoRelator.getIdentifier() == null || zenodoRelator.getIdentifier().isBlank()) continue;
 
-                    ZenodoRelator.RelationType relationType = new ZenodoRelator.RelationType();
-                    relationType.setId(relatedId.toLowerCase().substring(relatedId.lastIndexOf(".") + 1));
-                    zenodoRelator.setRelationType(relationType);
+                String scheme = field.getSemantics() != null && this.semanticsProperties.getRelatedIdentifiersScheme() != null
+                        ? field.getSemantics().stream().filter(this.semanticsProperties.getRelatedIdentifiersScheme() :: contains).findFirst().orElse(null)
+                        : null;
+                // the scheme is the last part of the scheme key, e.g. zenodo.related_identifiers.scheme.doi -> doi
+                if (scheme != null && scheme.lastIndexOf(".") < scheme.length() - 1) zenodoRelator.setScheme(scheme.substring(scheme.lastIndexOf(".") + 1).toLowerCase());
+                else zenodoRelator.setScheme(RELATED_IDENTIFIER_SCHEME_OTHER);
 
-                }
+                ZenodoRelator.RelationType relationType = new ZenodoRelator.RelationType();
+                relationType.setId(relatedId.toLowerCase().substring(relatedId.lastIndexOf(".") + 1));
+                zenodoRelator.setRelationType(relationType);
+
                 relatedIdentifier.add(zenodoRelator);
             }
         }
@@ -432,15 +444,23 @@ public class ZenodoBuilder {
         return response;
     }
 
-    private void applyZenodoRelator(PlanModel plan, ZenodoDeposit deposit) {
+    private void applyZenodoRelator(PlanModel plan, ZenodoDeposit deposit, DepositPluginSettings settings) {
         if (deposit.getMetadata() == null) deposit.setMetadata(new ZenodoDepositMetadata());
 
         List<String> acceptedPidTypes = this.pidProperties.getAcceptedTypes();
         List<ZenodoRelator> relatedIdentifiers = new ArrayList<>();
+
+        //plan
+        for(String relatedId: this.semanticsProperties.getRelatedIdentifiers()){
+            List<org.opencdmp.commonmodels.models.planblueprintdescriptiontemplatefields.FieldModel> fields = this.findSchematicValues(relatedId, plan.getPlanBlueprint().getDefinition().getAllField());
+            relatedIdentifiers.addAll(buildZenodoRelators(fields, plan.getProperties().getFieldSets(), acceptedPidTypes, relatedId, settings));
+        }
+
+        //description
         for(DescriptionModel descriptionModel: plan.getDescriptions()){
             for(String relatedId: this.semanticsProperties.getRelatedIdentifiers()){
-                List<org.opencdmp.commonmodels.models.descriptiotemplate.FieldModel> fields = this.findSchematicValues(relatedId, descriptionModel.getDescriptionTemplate().getDefinition());
-                relatedIdentifiers.addAll(buildZenodoRelators(fields, descriptionModel.getProperties(), acceptedPidTypes, relatedId));
+                List<org.opencdmp.commonmodels.models.planblueprintdescriptiontemplatefields.FieldModel> fields = this.findSchematicValues(relatedId, descriptionModel.getDescriptionTemplate().getDefinition().getAllField());
+                relatedIdentifiers.addAll(buildZenodoRelators(fields, descriptionModel.getProperties().getFieldSets(), acceptedPidTypes, relatedId, settings));
             }
 
         }
@@ -450,7 +470,7 @@ public class ZenodoBuilder {
     private void applyIsIdenticalTo(PlanModel plan, ZenodoDeposit deposit){
         if (deposit.getMetadata() == null) deposit.setMetadata(new ZenodoDepositMetadata());
         
-        if (plan.getAccessType().equals(PlanAccessType.Public)) {
+        if (PlanAccessType.Public.equals(plan.getAccessType())) {
             ZenodoRelator relator = new ZenodoRelator();
             relator.setIdentifier(zenodoServiceProperties.getDomain() + "explore-plans/overview/public/" + plan.getId().toString());
             relator.setScheme(RELATED_IDENTIFIER_SCHEME_URL);
@@ -462,9 +482,9 @@ public class ZenodoBuilder {
         }
     }
 
-    private void applyLicenses(PlanModel plan, ZenodoDeposit deposit){
+    private void applyLicenses(PlanModel plan, ZenodoDeposit deposit, DepositPluginSettings settings){
         if (deposit.getMetadata() == null) deposit.setMetadata(new ZenodoDepositMetadata());
-        List<ReferenceModel> planLicenses = this.getReferenceModelOfType(plan, zenodoServiceProperties.getLicenceReferenceCode());
+        List<ReferenceModel> planLicenses = this.getReferenceModelOfType(plan, settings.text(SETTING_LICENCES_TYPE, zenodoServiceProperties.getLicenceReferenceCode()));
         List<ZenodoLicense> licenses = new ArrayList<>();
         if (!planLicenses.isEmpty()) {
             for (ReferenceModel planLicense : planLicenses) {
@@ -480,13 +500,19 @@ public class ZenodoBuilder {
             deposit.getMetadata().getLicense().addAll(licenses);
         }
 
+        String defaultLicence = settings.text(SETTING_DEFAULT_LICENCE);
+        if ((deposit.getMetadata().getLicense() == null || deposit.getMetadata().getLicense().isEmpty()) && defaultLicence != null) {
+            ZenodoLicense license = new ZenodoLicense();
+            license.setId(defaultLicence.toLowerCase());
+            deposit.getMetadata().setLicense(new ArrayList<>(List.of(license)));
+        }
     }
 
-    private void applyResearchers(PlanModel plan, ZenodoDeposit deposit){
+    private void applyResearchers(PlanModel plan, ZenodoDeposit deposit, DepositPluginSettings settings){
         if (deposit.getMetadata() == null) deposit.setMetadata(new ZenodoDepositMetadata());
 
         List<ZenodoCreator> researchers = new ArrayList<>();
-        List<ReferenceModel> planResearchers = this.getReferenceModelOfType(plan, zenodoServiceProperties.getResearcherReferenceCode());
+        List<ReferenceModel> planResearchers = this.getReferenceModelOfType(plan, settings.text(SETTING_RESEARCHERS_TYPE, zenodoServiceProperties.getResearcherReferenceCode()));
         if (!planResearchers.isEmpty()) {
             for (ReferenceModel researcher : planResearchers) {
                 ZenodoCreator contributor = new ZenodoCreator();
@@ -503,7 +529,7 @@ public class ZenodoBuilder {
 
                 personOrOrg.setType(PERSON_OR_ORG_TYPE);
 
-                if (researcher.getSource().equalsIgnoreCase(zenodoServiceProperties.getOrcidResearcherSourceCode())) {
+                if (researcher.getSource() != null && researcher.getSource().equalsIgnoreCase(zenodoServiceProperties.getOrcidResearcherSourceCode())) {
                     List<ZenodoCreator.PersonOrOrg.Identifier> identifiers = new ArrayList<>();
                     ZenodoCreator.PersonOrOrg.Identifier identifier = new ZenodoCreator.PersonOrOrg.Identifier();
                     identifier.setScheme("orcid");
@@ -512,12 +538,8 @@ public class ZenodoBuilder {
                     personOrOrg.setIdentifiers(identifiers);
                 }
 
+                // no affiliation: the reference only knows its source (such as ORCID), which is not one
                 contributor.setPersonOrOrg(personOrOrg);
-
-                List<ZenodoCreator.Affiliation> affiliations = new ArrayList<>();
-                affiliations.add(new ZenodoCreator.Affiliation(researcher.getSource()));
-
-                contributor.setAffiliations(affiliations);
                 researchers.add(contributor);
             }
         }
@@ -527,14 +549,14 @@ public class ZenodoBuilder {
         deposit.getMetadata().getContributors().addAll(researchers);
     }
 
-    private void applyFunding(PlanModel plan, ZenodoDeposit deposit){
+    private void applyFunding(PlanModel plan, ZenodoDeposit deposit, DepositPluginSettings settings){
         if (deposit.getMetadata() == null) deposit.setMetadata(new ZenodoDepositMetadata());
-        List<ReferenceModel> planGrants = this.getReferenceModelOfType(plan, zenodoServiceProperties.getGrantReferenceCode());
-        List<ReferenceModel> planFunders = this.getReferenceModelOfType(plan, zenodoServiceProperties.getFunderReferenceCode());
+        List<ReferenceModel> planGrants = this.getReferenceModelOfType(plan, settings.text(SETTING_GRANTS_TYPE, zenodoServiceProperties.getGrantReferenceCode()));
+        List<ReferenceModel> planFunders = this.getReferenceModelOfType(plan, settings.text(SETTING_FUNDERS_TYPE, zenodoServiceProperties.getFunderReferenceCode()));
 
-        ZenodoFunding funding = new ZenodoFunding();
-        ReferenceModel funderReference = !planFunders.isEmpty() ? planFunders.getFirst(): null;
-        if (funderReference != null) {
+        List<ZenodoFunding.Funder> funders = new ArrayList<>();
+        for (ReferenceModel funderReference : planFunders) {
+            if (funderReference == null || funderReference.getLabel() == null) continue;
             List<FunderProperties.DoiFunder> doiFunders = this.funderProperties.getAvailable();
 
             FunderProperties.DoiFunder doiFunder = doiFunders.stream()
@@ -547,46 +569,49 @@ public class ZenodoBuilder {
                 funder = new ZenodoFunding.Funder();
                 funder.setName(funderReference.getLabel());
             }
-            funding.setFunder(funder);
+            funders.add(funder);
         }
 
-        ReferenceModel grantOpenaireReference = planGrants.stream().filter(x-> x.getSource().equalsIgnoreCase(zenodoServiceProperties.getOpenaireGrantSourceCode())).findFirst().orElse(null);
-        if (grantOpenaireReference != null) {
-            String grantReferenceTail = grantOpenaireReference.getReference().split(":")[2];
-            ZenodoFunding.Grant grant = this.getGrantFromDB(grantReferenceTail);
-            if (grant == null) {
-                grant = new ZenodoFunding.Grant();
-                grant.setTitle(grantOpenaireReference.getLabel());
-                grant.setNumber(grantOpenaireReference.getReference());
-            }
-            funding.setGrant(grant);
-        } else if (!planGrants.isEmpty() && planGrants.getFirst() != null){
+        // the plan does not link grants to funders: grants go with the first funder, as before, and other funders on their own
+        List<ZenodoFunding> fundingList = new ArrayList<>();
+        for (ReferenceModel grantReference : planGrants) {
+            if (grantReference == null) continue;
+            //TODO akis uncomment this, with the part after the second ':' of an openaire-sourced grant's reference
+//            ZenodoFunding.Grant grant = this.getGrantFromDB(grantReferenceTail);
             ZenodoFunding.Grant grant = new ZenodoFunding.Grant();
-            grant.setTitle(planGrants.getFirst().getLabel());
-            grant.setNumber(planGrants.getFirst().getReference());
+            grant.setTitle(grantReference.getLabel());
+//            grant.setNumber(grantReference.getReference());
+            ZenodoFunding funding = new ZenodoFunding();
+            if (!funders.isEmpty()) funding.setFunder(funders.getFirst());
             funding.setGrant(grant);
+            fundingList.add(funding);
+        }
+        for (int i = fundingList.isEmpty() ? 0 : 1; i < funders.size(); i++) {
+            ZenodoFunding funding = new ZenodoFunding();
+            funding.setFunder(funders.get(i));
+            fundingList.add(funding);
         }
 
         if (deposit.getMetadata().getFunding() == null)deposit.getMetadata().setFunding(new ArrayList<>());
-        deposit.getMetadata().getFunding().add(funding);
+        deposit.getMetadata().getFunding().addAll(fundingList);
     }
 
-    private void applyCreators(PlanModel plan, ZenodoDeposit deposit){
+    private void applyCreators(PlanModel plan, ZenodoDeposit deposit, DepositPluginSettings settings){
         if (plan.getUsers() == null) return;
 
         if (deposit.getMetadata() == null) deposit.setMetadata(new ZenodoDepositMetadata());
 
         if (deposit.getMetadata().getCreators() == null)deposit.getMetadata().setCreators(new ArrayList<>());
-        deposit.getMetadata().getCreators().addAll(this.setUsers(plan));
+        deposit.getMetadata().getCreators().addAll(this.setUsers(plan, settings));
     }
 
-    private List<ZenodoCreator> setUsers(PlanModel plan){
+    private List<ZenodoCreator> setUsers(PlanModel plan, DepositPluginSettings settings){
 
-        List<ReferenceModel> planOrganizations = this.getReferenceModelOfType(plan, zenodoServiceProperties.getOrganizationReferenceCode());
-        String zenodoAffiliation = zenodoServiceProperties.getAffiliation();
+        List<ReferenceModel> planOrganizations = this.getReferenceModelOfType(plan, settings.text(SETTING_ORGANISATIONS_TYPE, zenodoServiceProperties.getOrganizationReferenceCode()));
+        String zenodoAffiliation = settings.text(SETTING_AFFILIATION, zenodoServiceProperties.getAffiliation());
 
         List<ZenodoCreator> contributors = new ArrayList<>();
-        for (PlanUserModel planUser: plan.getUsers()) {
+        for (PlanUserModel planUser: settings.authors(plan.getUsers())) {
 
             ZenodoCreator contributor = new ZenodoCreator();
             contributor.setRole(new ZenodoCreator.Role(CONTRIBUTOR_TYPE_PROJECT_MANAGER));
@@ -603,7 +628,7 @@ public class ZenodoBuilder {
             if (!planOrganizations.isEmpty()) {
                 for (String label: planOrganizations.stream().map(ReferenceModel::getLabel).toList()) {
                     ZenodoCreator.Affiliation affiliation = new ZenodoCreator.Affiliation(label);
-                    if (!affiliations.contains(affiliation)) affiliations.add(affiliation);
+                    if (affiliations.stream().noneMatch(x -> x.getName().equalsIgnoreCase(affiliation.getName()))) affiliations.add(affiliation);
                 }
             } else {
                 if (zenodoAffiliation != null && !zenodoAffiliation.isEmpty()) {
@@ -624,13 +649,13 @@ public class ZenodoBuilder {
         for (String value: this.applyListValue(planModel, SEMANTIC_SUBJECT)) {
             ZenodoSubject subject = new ZenodoSubject();
             subject.setSubject(value);
-            if (!subjects.contains(subject)) subjects.add(subject);
+            if (subjects.stream().noneMatch(x -> x.getSubject().equalsIgnoreCase(subject.getSubject()))) subjects.add(subject);
         }
 
         if (!subjects.isEmpty()) deposit.getMetadata().setSubjects(subjects);
     }
 
-    private void applyLanguages(PlanModel planModel, ZenodoDeposit deposit) {
+    private void applyLanguages(PlanModel planModel, ZenodoDeposit deposit, String defaultLanguage) {
         if (deposit.getMetadata() == null) deposit.setMetadata(new ZenodoDepositMetadata());
 
         List<ZenodoLanguage> languages = new ArrayList<>();
@@ -639,9 +664,14 @@ public class ZenodoBuilder {
             if (locale.getISO3Language().equals(value)) {
                 ZenodoLanguage language = new ZenodoLanguage();
                 language.setId(value);
-                if (!languages.contains(language)) languages.add(language);
+                if (languages.stream().noneMatch(x -> x.getId().equalsIgnoreCase(language.getId()))) languages.add(language);
             }
 
+        }
+        if (languages.isEmpty() && defaultLanguage != null) {
+            ZenodoLanguage language = new ZenodoLanguage();
+            language.setId(defaultLanguage.toLowerCase());
+            languages.add(language);
         }
 
         if (!languages.isEmpty()) deposit.getMetadata().setLanguages(languages);
@@ -654,7 +684,7 @@ public class ZenodoBuilder {
         for (String value: this.applyListValue(planModel, SEMANTIC_REFERENCE)) {
             ZenodoReference reference = new ZenodoReference();
             reference.setReference(value);
-            if (!references.contains(reference)) references.add(reference);
+            if (references.stream().noneMatch(x -> x.getReference().equalsIgnoreCase(reference.getReference()))) references.add(reference);
         }
 
         if (!references.isEmpty()) deposit.getMetadata().setReferences(references);
@@ -690,7 +720,7 @@ public class ZenodoBuilder {
         List<String> journalPage = this.applyListValue(planModel, SEMANTIC_JOURNAL_PAGE_RANGE);
         if (!journalPage.isEmpty()) journal.setPages(journalPage.getFirst());
 
-        customFields.setJournal(journal);
+        if (journal.getTitle() != null || journal.getIssn() != null || journal.getVolume() != null || journal.getIssue() != null || journal.getPages() != null) customFields.setJournal(journal);
 
         ZenodoDepositCustomFields.Imprint imprint = new ZenodoDepositCustomFields.Imprint();
 
@@ -706,33 +736,35 @@ public class ZenodoBuilder {
         List<String> imprintPagination = this.applyListValue(planModel, SEMANTIC_IMPRINT_PAGINATION);
         if (!imprintPagination.isEmpty()) imprint.setPages(imprintPagination.getFirst());
 
-        customFields.setImprint(imprint);
+        if (imprint.getTitle() != null || imprint.getIsbn() != null || imprint.getPlace() != null || imprint.getPages() != null) customFields.setImprint(imprint);
 
         List<String> thesisUniversity = this.applyListValue(planModel, SEMANTIC_THESIS_UNIVERSITY);
-        if (!thesisUniversity.isEmpty()) customFields.setThesisUniversity(thesisUniversity.getFirst());
+        if (!thesisUniversity.isEmpty()) {
+            ZenodoDepositCustomFields.Thesis thesis = new ZenodoDepositCustomFields.Thesis();
+            thesis.setUniversity(thesisUniversity.getFirst());
+            customFields.setThesis(thesis);
+        }
     }
 
     private List<String> applyListValue(PlanModel planModel, String semanticCode) {
         List<String> fields = new ArrayList<>();
 
         //plan blueprint semantics
-        List<org.opencdmp.commonmodels.models.planblueprint.FieldModel> blueprintFieldsWithSemantic = this.getFieldOfSemantic(planModel, semanticCode);
-        for (org.opencdmp.commonmodels.models.planblueprint.FieldModel field: blueprintFieldsWithSemantic) {
-            PlanBlueprintValueModel planBlueprintValueModel = this.getPlanBlueprintValue(planModel, field.getId());
-            if (planBlueprintValueModel != null) {
-                if (planBlueprintValueModel.getValue() != null && !planBlueprintValueModel.getValue().isBlank()) fields.add(planBlueprintValueModel.getValue());
-                else if (planBlueprintValueModel.getNumberValue() != null) fields.add(planBlueprintValueModel.getNumberValue().toString());
-                else if (planBlueprintValueModel.getDateValue() != null) fields.add(DateTimeFormatter.ofPattern("yyyy-MM-dd").withZone(ZoneId.systemDefault()).format(planBlueprintValueModel.getDateValue()));
-            }
+        List<org.opencdmp.commonmodels.models.planblueprintdescriptiontemplatefields.FieldModel> fieldsWithSemantics = this.findSchematicValues(semanticCode, planModel.getPlanBlueprint().getDefinition().getAllField());
+        Set<String> values = extractSchematicValues(fieldsWithSemantics, planModel.getProperties().getFieldSets());
+
+        if (!values.isEmpty()) {
+            fields.addAll(values.stream().toList());
         }
 
-        //description template
-        for (DescriptionModel descriptionModel: planModel.getDescriptions()) {
-            List<org.opencdmp.commonmodels.models.descriptiotemplate.FieldModel> fieldsWithSemantics = this.findSchematicValues(semanticCode, descriptionModel.getDescriptionTemplate().getDefinition());
-            Set<String> values = extractSchematicValues(fieldsWithSemantics, descriptionModel.getProperties());
-            //description tags from semantic
-            for (String value: values){
-                if (!fields.contains(value)) fields.add(value);
+        if (planModel.getDescriptions() != null) {
+            //description template
+            for (DescriptionModel descriptionModel: planModel.getDescriptions()) {
+                fieldsWithSemantics = this.findSchematicValues(semanticCode, descriptionModel.getDescriptionTemplate().getDefinition().getAllField());
+                values = extractSchematicValues(fieldsWithSemantics, descriptionModel.getProperties().getFieldSets());
+                if (!values.isEmpty()) {
+                    fields.addAll(values.stream().toList());
+                }
             }
         }
 
@@ -743,61 +775,71 @@ public class ZenodoBuilder {
         if (deposit.getMetadata() == null) deposit.setMetadata(new ZenodoDepositMetadata());
 
         List<ZenodoAdditionalTitle> additionalTitles = new ArrayList<>();
+
+        List<String> semantics = List.of(SEMANTIC_ADDITIONAL_TITLE, SEMANTIC_ADDITIONAL_TITLE_TYPE, SEMANTIC_ADDITIONAL_TITLE_LANGUAGE);
+
+        for (FieldSetModel fieldSet : this.blueprintFieldSearcherService.searchFieldSetsBySemantics(planModel.getPlanBlueprint(), semantics)) {
+            this.buildAdditionalTitle(fieldSet, planModel.getPlanBlueprint().getDefinition().getAllField(), planModel.getProperties().getFieldSets(), additionalTitles);
+        }
+
         if (planModel.getDescriptions() != null) {
             for (DescriptionModel descriptionModel : planModel.getDescriptions()) {
-                for (FieldSetModel fieldSet : this.templateFieldSearcherService.searchFieldSetsBySemantics(descriptionModel.getDescriptionTemplate(), List.of(SEMANTIC_ADDITIONAL_TITLE, SEMANTIC_ADDITIONAL_TITLE_TYPE, SEMANTIC_ADDITIONAL_TITLE_LANGUAGE))) {
-
-                    List<org.opencdmp.commonmodels.models.description.PropertyDefinitionFieldSetItemModel> propertyDefinitionFieldSetItemModels = this.findFieldSetValue(fieldSet, descriptionModel.getProperties());
-                    for (org.opencdmp.commonmodels.models.description.PropertyDefinitionFieldSetItemModel propertyDefinitionFieldSetItemModel : propertyDefinitionFieldSetItemModels) {
-
-                        ZenodoAdditionalTitle additionalTitle = new ZenodoAdditionalTitle();
-                        ZenodoAdditionalTitle.Type type = new ZenodoAdditionalTitle.Type();
-
-                        FieldModel fieldValue = this.findValueFieldBySemantic(fieldSet, propertyDefinitionFieldSetItemModel, SEMANTIC_ADDITIONAL_TITLE);
-                        if (fieldValue != null) {
-                            FieldModel finalFieldValue = fieldValue;
-                            String value = this.extractSchematicSingleValue(descriptionModel.getDescriptionTemplate().getDefinition().getAllField().stream().filter(x-> x.getId().equals(finalFieldValue.getId())).findFirst().orElse(null), fieldValue);
-                            if (value != null) additionalTitle.setTitle(value);
-                        }
-
-                        fieldValue = this.findValueFieldBySemantic(fieldSet, propertyDefinitionFieldSetItemModel, SEMANTIC_ADDITIONAL_TITLE_TYPE);
-                        if (fieldValue != null) {
-                            FieldModel finalFieldValue1 = fieldValue;
-                            String value = this.extractSchematicSingleValue(descriptionModel.getDescriptionTemplate().getDefinition().getAllField().stream().filter(x-> x.getId().equals(finalFieldValue1.getId())).findFirst().orElse(null), fieldValue);
-                            if (value != null) {
-                                if (Arrays.stream(ZenodoAdditionalTitleIdType.values()).toList().stream().map(ZenodoAdditionalTitleIdType::getValue).toList().contains(value)) {
-                                    type.setId(ZenodoAdditionalTitleIdType.of(value));
-                                } else {
-                                    type.setId(ZenodoAdditionalTitleIdType.OTHER);
-                                }
-                                additionalTitle.setType(type);
-                            }
-                        } else {
-                            type.setId(ZenodoAdditionalTitleIdType.OTHER);
-                            additionalTitle.setType(type);
-                        }
-
-                        fieldValue = this.findValueFieldBySemantic(fieldSet, propertyDefinitionFieldSetItemModel, SEMANTIC_ADDITIONAL_TITLE_LANGUAGE);
-                        if (fieldValue != null) {
-                            FieldModel finalFieldValue = fieldValue;
-                            String value = this.extractSchematicSingleValue(descriptionModel.getDescriptionTemplate().getDefinition().getAllField().stream().filter(x-> x.getId().equals(finalFieldValue.getId())).findFirst().orElse(null), fieldValue);
-                            if (value != null) {
-                                ULocale locale = new ULocale(value);
-                                if (locale.getISO3Language().equals(value)) {
-                                    ZenodoAdditionalTitle.Language language = new ZenodoAdditionalTitle.Language();
-                                    language.setId(value);
-                                    additionalTitle.setLang(language);
-                                }
-                            }
-                        }
-
-                        additionalTitles.add(additionalTitle);
-                    }
+                for (FieldSetModel fieldSet : this.templateFieldSearcherService.searchFieldSetsBySemantics(descriptionModel.getDescriptionTemplate(), semantics)) {
+                    this.buildAdditionalTitle(fieldSet, descriptionModel.getDescriptionTemplate().getDefinition().getAllField(), descriptionModel.getProperties().getFieldSets(), additionalTitles);
                 }
             }
         }
 
         if (!additionalTitles.isEmpty()) deposit.getMetadata().setAdditionalTitles(additionalTitles);
+    }
+
+    private void buildAdditionalTitle(FieldSetModel fieldSet, List<org.opencdmp.commonmodels.models.planblueprintdescriptiontemplatefields.FieldModel> fieldModels, Map<String, PropertyDefinitionFieldSetModel> fieldSets, List<ZenodoAdditionalTitle> additionalTitles) {
+        List<org.opencdmp.commonmodels.models.plandescriptionfields.PropertyDefinitionFieldSetItemModel> propertyDefinitionFieldSetItemModels = this.findFieldSetValue(fieldSet, fieldSets);
+        for (org.opencdmp.commonmodels.models.plandescriptionfields.PropertyDefinitionFieldSetItemModel propertyDefinitionFieldSetItemModel : propertyDefinitionFieldSetItemModels) {
+
+            ZenodoAdditionalTitle additionalTitle = new ZenodoAdditionalTitle();
+            ZenodoAdditionalTitle.Type type = new ZenodoAdditionalTitle.Type();
+
+            FieldModel fieldValue = this.findValueFieldBySemantic(fieldSet, propertyDefinitionFieldSetItemModel, SEMANTIC_ADDITIONAL_TITLE);
+            if (fieldValue != null) {
+                FieldModel finalFieldValue = fieldValue;
+                String value = this.extractSchematicSingleValue(fieldModels.stream().filter(x-> x.getId().equals(finalFieldValue.getId())).findFirst().orElse(null), fieldValue);
+                if (value != null && !value.isBlank()) additionalTitle.setTitle(value);
+            }
+            // a type or language without a title is not an additional title
+            if (additionalTitle.getTitle() == null) continue;
+
+            fieldValue = this.findValueFieldBySemantic(fieldSet, propertyDefinitionFieldSetItemModel, SEMANTIC_ADDITIONAL_TITLE_TYPE);
+            if (fieldValue != null) {
+                FieldModel finalFieldValue1 = fieldValue;
+                String value = this.extractSchematicSingleValue(fieldModels.stream().filter(x-> x.getId().equals(finalFieldValue1.getId())).findFirst().orElse(null), fieldValue);
+                if (value != null && Arrays.stream(ZenodoAdditionalTitleIdType.values()).toList().stream().map(ZenodoAdditionalTitleIdType::getValue).toList().contains(value)) {
+                    type.setId(ZenodoAdditionalTitleIdType.of(value));
+                } else {
+                    type.setId(ZenodoAdditionalTitleIdType.OTHER);
+                }
+                additionalTitle.setType(type);
+            } else {
+                type.setId(ZenodoAdditionalTitleIdType.OTHER);
+                additionalTitle.setType(type);
+            }
+
+            fieldValue = this.findValueFieldBySemantic(fieldSet, propertyDefinitionFieldSetItemModel, SEMANTIC_ADDITIONAL_TITLE_LANGUAGE);
+            if (fieldValue != null) {
+                FieldModel finalFieldValue = fieldValue;
+                String value = this.extractSchematicSingleValue(fieldModels.stream().filter(x-> x.getId().equals(finalFieldValue.getId())).findFirst().orElse(null), fieldValue);
+                if (value != null) {
+                    ULocale locale = new ULocale(value);
+                    if (locale.getISO3Language().equals(value)) {
+                        ZenodoAdditionalTitle.Language language = new ZenodoAdditionalTitle.Language();
+                        language.setId(value);
+                        additionalTitle.setLang(language);
+                    }
+                }
+            }
+
+            additionalTitles.add(additionalTitle);
+        }
     }
 
     private void applySoftware(PlanModel planModel, ZenodoDepositCustomFields customFields){
@@ -819,7 +861,7 @@ public class ZenodoBuilder {
                         programmingLanguage.add(code);
                     }
                 }
-                customFields.setCodeProgrammingLanguage(programmingLanguage);
+                if (!programmingLanguage.isEmpty()) customFields.setCodeProgrammingLanguage(programmingLanguage);
             }
 
             List<String> softwareStatus = this.applyListValue(planModel, SEMANTIC_SOFTWARE_DEVELOPMENT_STATUS);
@@ -835,8 +877,6 @@ public class ZenodoBuilder {
     }
 
     private void applyConference(PlanModel planModel, ZenodoDepositCustomFields customFields){
-
-        if(customFields.getConference() == null) customFields.setConference(new ZenodoDepositCustomFields.Conference());
 
         ZenodoDepositCustomFields.Conference conference = new ZenodoDepositCustomFields.Conference();
 
@@ -861,8 +901,8 @@ public class ZenodoBuilder {
         List<String> conferencePart = this.applyListValue(planModel, SEMANTIC_CONFERENCE_PART);
         if (!conferencePart.isEmpty()) conference.setSessionPart(conferencePart.getFirst());
 
-
-        customFields.setConference(conference);
+        if (conference.getTitle() != null || conference.getAcronym() != null || conference.getPlace() != null || conference.getDates() != null
+                || conference.getUrl() != null || conference.getSession() != null || conference.getSessionPart() != null) customFields.setConference(conference);
 
     }
 
@@ -921,6 +961,31 @@ public class ZenodoBuilder {
         if (!alternateIdentifiers.isEmpty()) deposit.getMetadata().setAlternateIdentifiers(alternateIdentifiers);
     }
 
+
+    /** The publication date as yyyy-MM-dd from a yyyy-MM-dd or yyyy/MM/dd date or an ISO instant; null when it is none of them. */
+    private String parsePublicationDate(String value) {
+        if (value == null || value.isBlank()) return null;
+        String trimmed = value.trim();
+        for (String pattern : List.of("yyyy-MM-dd", "yyyy/MM/dd")) {
+            try {
+                return LocalDate.parse(trimmed, DateTimeFormatter.ofPattern(pattern)).toString();
+            } catch (Exception ignored) {
+            }
+        }
+        try {
+            return DateTimeFormatter.ofPattern("yyyy-MM-dd").withZone(ZoneId.systemDefault()).format(Instant.parse(trimmed));
+        } catch (Exception e) {
+            logger.warn("invalid publication date for value: " + value);
+            return null;
+        }
+    }
+
+    /** The value exported for a select or radio option: its value, or its label when the value is empty. */
+    private String optionValueOrLabel(String value, String label) {
+        if (value != null && !value.isBlank()) return value;
+        if (label != null && !label.isBlank()) return label;
+        return null;
+    }
 
     private String checkValidDate(String dateStr) {
         ///TODO Make the input more resilient to crashes. Convert the string Time to correct. For example if its 12/12/2024 to make it to 2024-12-12
@@ -1054,15 +1119,15 @@ public class ZenodoBuilder {
         });
     }
 
-    private org.opencdmp.commonmodels.models.description.FieldModel findValueFieldBySemantic(FieldSetModel fieldSet, org.opencdmp.commonmodels.models.description.PropertyDefinitionFieldSetItemModel propertyDefinitionFieldSetItemModel, String semantic){
-        org.opencdmp.commonmodels.models.descriptiotemplate.FieldModel field = this.templateFieldSearcherService.findFieldBySemantic(fieldSet, semantic);
+    private org.opencdmp.commonmodels.models.plandescriptionfields.FieldModel findValueFieldBySemantic(FieldSetModel fieldSet, org.opencdmp.commonmodels.models.plandescriptionfields.PropertyDefinitionFieldSetItemModel propertyDefinitionFieldSetItemModel, String semantic){
+        org.opencdmp.commonmodels.models.planblueprintdescriptiontemplatefields.FieldModel field = this.templateFieldSearcherService.findFieldBySemantic(fieldSet, semantic);
         return field != null ? propertyDefinitionFieldSetItemModel.getFields().getOrDefault(field.getId(), null) : null;
     }
 
-    private List<org.opencdmp.commonmodels.models.description.PropertyDefinitionFieldSetItemModel> findFieldSetValue(FieldSetModel fieldSetModel, PropertyDefinitionModel descriptionTemplateModel){
-        List<org.opencdmp.commonmodels.models.description.PropertyDefinitionFieldSetItemModel> items = new ArrayList<>();
-        if (fieldSetModel == null || descriptionTemplateModel == null || descriptionTemplateModel.getFieldSets() == null) return items;
-        PropertyDefinitionFieldSetModel propertyDefinitionFieldSetModel =  descriptionTemplateModel.getFieldSets().getOrDefault(fieldSetModel.getId(), null);
+    private List<org.opencdmp.commonmodels.models.plandescriptionfields.PropertyDefinitionFieldSetItemModel> findFieldSetValue(FieldSetModel fieldSetModel, Map<String, PropertyDefinitionFieldSetModel> fieldSets){
+        List<org.opencdmp.commonmodels.models.plandescriptionfields.PropertyDefinitionFieldSetItemModel> items = new ArrayList<>();
+        if (fieldSetModel == null || fieldSets == null) return items;
+        PropertyDefinitionFieldSetModel propertyDefinitionFieldSetModel =  fieldSets.getOrDefault(fieldSetModel.getId(), null);
         if (propertyDefinitionFieldSetModel != null && propertyDefinitionFieldSetModel.getItems() != null) return propertyDefinitionFieldSetModel.getItems();
         return items;
     }

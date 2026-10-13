@@ -11,6 +11,8 @@ public class ZenodoDates {
 
     private Type type;
 
+    private String description;
+
 
     public static class Type {
         private String id;
@@ -49,6 +51,14 @@ public class ZenodoDates {
 
     public String getDate() {
         return date;
+    }
+
+    public String getDescription() {
+        return description;
+    }
+
+    public void setDescription(String description) {
+        this.description = description;
     }
 
     public void setDate(String date) {

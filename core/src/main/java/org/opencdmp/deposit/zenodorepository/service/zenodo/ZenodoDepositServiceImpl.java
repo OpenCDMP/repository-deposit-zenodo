@@ -4,15 +4,24 @@ import gr.cite.tools.exception.MyApplicationException;
 import gr.cite.tools.logging.LoggerService;
 import gr.cite.tools.logging.MapLogEntry;
 import org.opencdmp.commonmodels.models.FileEnvelopeModel;
+import org.opencdmp.commonmodels.models.deposit.DepositPreviewModel;
 import org.opencdmp.commonmodels.models.plan.PlanModel;
 import org.opencdmp.commonmodels.models.plugin.PluginUserFieldModel;
 import org.opencdmp.deposit.zenodorepository.model.ZenodoCommunity;
 import org.opencdmp.deposit.zenodorepository.model.ZenodoDeposit;
 import org.opencdmp.deposit.zenodorepository.model.ZenodoUploadFile;
 import org.opencdmp.deposit.zenodorepository.model.builder.ZenodoBuilder;
+import org.opencdmp.deposit.zenodorepository.configuration.programminglanguages.ProgrammingLanguagesProperties;
+import org.opencdmp.deposit.zenodorepository.configuration.semantics.SemanticsProperties;
+import org.opencdmp.deposit.zenodorepository.configuration.semantics.ZenodoSemanticsManifest;
+import org.opencdmp.deposit.zenodorepository.model.builder.ZenodoPreviewMapper;
 import org.opencdmp.deposit.zenodorepository.service.storage.FileStorageService;
+import org.opencdmp.commonmodels.models.deposit.PreviewFieldOption;
 import org.opencdmp.depositbase.repository.DepositConfiguration;
+import org.opencdmp.depositbase.repository.DepositPluginSettings;
+import org.opencdmp.depositbase.repository.DepositPreviewMergeHelper;
 import org.opencdmp.depositbase.repository.PlanDepositModel;
+import tools.jackson.databind.JsonNode;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.ParameterizedTypeReference;
@@ -45,6 +54,8 @@ public class ZenodoDepositServiceImpl implements ZenodoDepositService {
     private static final String PUBLISH_ID = "doi";
 
     private static final String CONFIGURATION_FIELD_ACCESS_TOKEN = "zenodo-access-token";
+    private static final String SETTING_ORGANISATION_ACCESS_TOKEN = "organisation-access-token";
+    private static final String SETTING_ADDITIONAL_COMMUNITIES = "additional-communities";
     private static final String CLIENT_ID = "client_id";
     private static final String CLIENT_SECRET = "client_secret";
     private static final String GRANT_TYPE = "grant_type";
@@ -62,18 +73,129 @@ public class ZenodoDepositServiceImpl implements ZenodoDepositService {
 
     private final ZenodoServiceProperties zenodoServiceProperties;
     private final ZenodoBuilder zenodoBuilder;
+    private final ZenodoPreviewMapper zenodoPreviewMapper;
+    private final ProgrammingLanguagesProperties programmingLanguagesProperties;
     private final FileStorageService storageService;
     private final ResourceLoader resourceLoader;
 
     private byte[] logo;
-    
+
     @Autowired
-    public ZenodoDepositServiceImpl(ZenodoServiceProperties zenodoServiceProperties, ZenodoBuilder mapper, FileStorageService storageService, ResourceLoader resourceLoader){
+    public ZenodoDepositServiceImpl(ZenodoServiceProperties zenodoServiceProperties, ZenodoBuilder mapper, ZenodoPreviewMapper zenodoPreviewMapper, ProgrammingLanguagesProperties programmingLanguagesProperties, FileStorageService storageService, ResourceLoader resourceLoader, SemanticsProperties semanticsProperties){
         this.zenodoServiceProperties = zenodoServiceProperties;
         this.zenodoBuilder = mapper;
+        this.zenodoPreviewMapper = zenodoPreviewMapper;
+        this.programmingLanguagesProperties = programmingLanguagesProperties;
 	    this.storageService = storageService;
         this.resourceLoader = resourceLoader;
         this.logo = null;
+        this.zenodoServiceProperties.getDepositConfiguration().setSemantics(ZenodoSemanticsManifest.build(semanticsProperties, programmingLanguagesProperties));
+    }
+
+    @Override
+    public DepositPreviewModel preview(PlanDepositModel planDepositModel) {
+        if (planDepositModel == null || planDepositModel.getPlanModel() == null) return null;
+
+        ZenodoDeposit deposit = zenodoBuilder.build(planDepositModel.getPlanModel());
+        String community = zenodoBuilder.getCommunity(planDepositModel.getPlanModel());
+        List<String> uploadFileNames = new ArrayList<>();
+        PlanModel planModel = planDepositModel.getPlanModel();
+        if (planModel.getPdfFile() != null && planModel.getPdfFile().getFilename() != null) uploadFileNames.add(planModel.getPdfFile().getFilename());
+        if (planModel.getRdaJsonFile() != null && planModel.getRdaJsonFile().getFilename() != null) uploadFileNames.add(planModel.getRdaJsonFile().getFilename());
+        if (planModel.getSupportingFilesZip() != null && planModel.getSupportingFilesZip().getFilename() != null) uploadFileNames.add(planModel.getSupportingFilesZip().getFilename());
+        DepositPreviewModel preview = this.zenodoPreviewMapper.toPreview(deposit, community, uploadFileNames, DepositPluginSettings.of(planDepositModel, this.getConfiguration()));
+        DepositPreviewMergeHelper.merge(preview, planDepositModel.getStoredFields(), planDepositModel.getStoredGroups());
+        return preview;
+    }
+
+    @Override
+    public List<PreviewFieldOption> searchVocabulary(String fieldCode, String like) {
+        if (ZenodoPreviewMapper.FIELD_SOFTWARE_PROGRAMMING_LANGUAGE.equals(fieldCode)) return this.searchProgrammingLanguages(like);
+
+        String path = switch (fieldCode) {
+            case ZenodoPreviewMapper.FIELD_LICENSE -> "vocabularies/licenses";
+            case ZenodoPreviewMapper.FIELD_LANGUAGE -> "vocabularies/languages";
+            case ZenodoPreviewMapper.FIELD_KEYWORDS -> "subjects";
+            case ZenodoPreviewMapper.ITEM_FUNDER_NAME -> "funders";
+            case ZenodoPreviewMapper.FIELD_ADDITIONAL_COMMUNITIES -> "communities";
+            case ZenodoPreviewMapper.ITEM_AWARD_TITLE, ZenodoPreviewMapper.ITEM_AWARD_NUMBER -> "awards";
+            default -> null;
+        };
+        if (path == null) return List.of();
+
+        String repositoryUrl = this.zenodoServiceProperties.getDepositConfiguration().getRepositoryUrl();
+        List<PreviewFieldOption> options = new ArrayList<>();
+        try {
+            String response = this.getWebClient().get()
+                    .uri(repositoryUrl + path, uriBuilder -> uriBuilder
+                            .queryParam("size", 25)
+                            .queryParamIfPresent("q", like != null && !like.isBlank() ? java.util.Optional.of(like) : java.util.Optional.empty())
+                            .build())
+                    .retrieve().bodyToMono(String.class).block();
+            if (response == null) return List.of();
+            JsonNode hits = objectMapper.readTree(response).path("hits").path("hits");
+            for (JsonNode hit : hits) {
+                switch (path) {
+                    case "subjects" -> {
+                        // free-text subjects: the human-readable term is both label and stored value
+                        String subject = hit.path("subject").asText(null);
+                        if (subject == null || subject.isBlank()) continue;
+                        String scheme = hit.path("scheme").asText(null);
+                        options.add(new PreviewFieldOption(scheme != null && !scheme.isBlank() ? subject + " (" + scheme + ")" : subject, subject));
+                    }
+                    case "funders" -> {
+                        String name = hit.path("name").asText(null);
+                        if (name == null || name.isBlank()) continue;
+                        String country = hit.path("country_name").asText(null);
+                        options.add(new PreviewFieldOption(country != null && !country.isBlank() ? name + " (" + country + ")" : name, name));
+                    }
+                    case "communities" -> {
+                        // stored value is the community slug, which is what the inclusion request API expects
+                        String slug = hit.path("slug").asText(null);
+                        if (slug == null || slug.isBlank()) continue;
+                        String title = hit.path("metadata").path("title").asText(null);
+                        options.add(new PreviewFieldOption(title != null && !title.isBlank() ? title : slug, slug));
+                    }
+                    case "awards" -> {
+                        String title = hit.path("title").path("en").asText(null);
+                        String number = hit.path("number").asText(null);
+                        String funder = hit.path("funder").path("name").asText(null);
+                        if (ZenodoPreviewMapper.ITEM_AWARD_NUMBER.equals(fieldCode)) {
+                            if (number == null || number.isBlank()) continue;
+                            String label = number + (title != null && !title.isBlank() ? " — " + title : "") + (funder != null && !funder.isBlank() ? " (" + funder + ")" : "");
+                            options.add(new PreviewFieldOption(label, number));
+                        } else {
+                            if (title == null || title.isBlank()) continue;
+                            String label = title + (number != null && !number.isBlank() ? " (" + number + ")" : "") + (funder != null && !funder.isBlank() ? " — " + funder : "");
+                            options.add(new PreviewFieldOption(label, title));
+                        }
+                    }
+                    default -> {
+                        String id = hit.path("id").asText(null);
+                        if (id == null || id.isBlank()) continue;
+                        String label = hit.path("title").path("en").asText(null);
+                        options.add(new PreviewFieldOption(label != null && !label.isBlank() ? label : id, id));
+                    }
+                }
+            }
+        } catch (Exception e) {
+            logger.error("vocabulary search failed for " + fieldCode + ": " + e.getMessage(), e);
+        }
+        return options;
+    }
+
+    private List<PreviewFieldOption> searchProgrammingLanguages(String like) {
+        List<String> codes = this.programmingLanguagesProperties.getProgrammingCodes();
+        if (codes == null) return List.of();
+        String term = like != null ? like.trim().toLowerCase(Locale.ROOT) : "";
+        List<PreviewFieldOption> options = new ArrayList<>();
+        for (String code : codes) {
+            if (code == null || code.isBlank()) continue;
+            if (!term.isEmpty() && !code.toLowerCase(Locale.ROOT).contains(term)) continue;
+            options.add(new PreviewFieldOption(code, code));
+            if (options.size() >= 25) break;
+        }
+        return options;
     }
 
     @Override
@@ -83,6 +205,7 @@ public class ZenodoDepositServiceImpl implements ZenodoDepositService {
 
         if(depositConfiguration != null && planDepositModel != null && planDepositModel.getPlanModel() != null) {
 
+            DepositPluginSettings settings = DepositPluginSettings.of(planDepositModel, depositConfiguration);
             String zenodoToken = null;
             if (planDepositModel.getAuthInfo() != null) {
                 if (planDepositModel.getAuthInfo().getAuthToken() != null && !planDepositModel.getAuthInfo().getAuthToken().isBlank()) zenodoToken = planDepositModel.getAuthInfo().getAuthToken();
@@ -93,7 +216,7 @@ public class ZenodoDepositServiceImpl implements ZenodoDepositService {
             }
 
             if (zenodoToken == null || zenodoToken.isBlank()) {
-                zenodoToken = depositConfiguration.getAccessToken();
+                zenodoToken = settings.text(SETTING_ORGANISATION_ACCESS_TOKEN, depositConfiguration.getAccessToken());
             }
 
             String zenodoUrl = depositConfiguration.getRepositoryUrl();
@@ -104,6 +227,9 @@ public class ZenodoDepositServiceImpl implements ZenodoDepositService {
             DepositConfiguration zenodoConfig = this.zenodoServiceProperties.getDepositConfiguration();
             if (zenodoConfig == null) return null;
             ZenodoDeposit deposit = zenodoBuilder.build(planDepositModel.getPlanModel());
+            this.zenodoPreviewMapper.applyOverrides(deposit, planDepositModel.getEditedFields(), planDepositModel.getEditedGroups(), settings);
+            List<String> additionalCommunities = new ArrayList<>(settings.list(SETTING_ADDITIONAL_COMMUNITIES));
+            additionalCommunities.addAll(this.zenodoPreviewMapper.extractAdditionalCommunities(planDepositModel.getEditedFields()));
 
             LinkedHashMap<String, String> links;
             String previousDOI = planDepositModel.getPlanModel().getPreviousDOI();
@@ -124,11 +250,12 @@ public class ZenodoDepositServiceImpl implements ZenodoDepositService {
 
                 if (links == null || !links.containsKey(ZENODO_LINKS_RECORD)) throw new MyApplicationException("record not found");
 
+                // the platform leaves out the files the organisation chose not to deposit
                 FileEnvelopeModel pdfEnvelope = planDepositModel.getPlanModel().getPdfFile();
-                this.uploadFile(zenodoToken, zenodoClient, links, pdfEnvelope);
+                if (pdfEnvelope != null) this.uploadFile(zenodoToken, zenodoClient, links, pdfEnvelope);
 
                 FileEnvelopeModel rdaJsonEnvelope = planDepositModel.getPlanModel().getRdaJsonFile();
-                this.uploadFile(zenodoToken, zenodoClient, links, rdaJsonEnvelope);
+                if (rdaJsonEnvelope != null) this.uploadFile(zenodoToken, zenodoClient, links, rdaJsonEnvelope);
 
                 if (planDepositModel.getPlanModel().getSupportingFilesZip() != null) {
                     this.uploadFile(zenodoToken, zenodoClient, links, planDepositModel.getPlanModel().getSupportingFilesZip());
@@ -137,7 +264,7 @@ public class ZenodoDepositServiceImpl implements ZenodoDepositService {
                 // Third post call to Zenodo to publish the entry and return the DOI.
                 publishUrl = links.get(ZENODO_LINKS_RECORD) + "/draft/actions/publish" + "?access_token=" + zenodoToken;
 
-                return this.publish(zenodoClient, publishUrl, zenodoToken, isNewVersion, planDepositModel.getPlanModel());
+                return this.publish(zenodoClient, publishUrl, zenodoToken, isNewVersion, planDepositModel.getPlanModel(), additionalCommunities);
 
             } catch (HttpClientErrorException | HttpServerErrorException ex) {
                 logger.error(ex.getMessage(), ex);
@@ -268,7 +395,7 @@ public class ZenodoDepositServiceImpl implements ZenodoDepositService {
 
     }
 
-    private String publish(WebClient webClient, String publishUrl, String zenodoToken, boolean isNewVersion, PlanModel planModel){
+    private String publish(WebClient webClient, String publishUrl, String zenodoToken, boolean isNewVersion, PlanModel planModel, List<String> additionalCommunities){
         logger.debug(new MapLogEntry("publish")
                 .And("url", publishUrl));
         Map<String, Object> publishResponse = webClient.post().uri(publishUrl).bodyValue("").exchangeToMono(mono ->
@@ -277,18 +404,29 @@ public class ZenodoDepositServiceImpl implements ZenodoDepositService {
                         mono.bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})).block();
         if (publishResponse == null) throw new UnsupportedOperationException("Failed to publish to Zenodo");
 
-        if(!isNewVersion) this.addCommunityEntry(webClient, zenodoToken, publishResponse, planModel);
+        if(!isNewVersion) this.addCommunityEntry(webClient, zenodoToken, publishResponse, planModel, additionalCommunities);
         return (String) publishResponse.get(PUBLISH_ID);
     }
 
-    private void addCommunityEntry(WebClient webClient, String zenodoToken, Map<String, Object> publishResponse, PlanModel planModel) {
+    private void addCommunityEntry(WebClient webClient, String zenodoToken, Map<String, Object> publishResponse, PlanModel planModel, List<String> additionalCommunities) {
         String communityId = this.zenodoBuilder.getCommunity(planModel);
-        if (communityId != null && !communityId.isBlank()) {
-            ZenodoCommunity.Community community = new ZenodoCommunity.Community();
-            community.setId(communityId);
+        List<String> slugs = new ArrayList<>();
+        if (communityId != null && !communityId.isBlank()) slugs.add(communityId);
+        if (additionalCommunities != null) {
+            for (String slug : additionalCommunities) {
+                if (slug != null && !slug.isBlank() && !slugs.contains(slug)) slugs.add(slug);
+            }
+        }
+        if (!slugs.isEmpty()) {
+            List<ZenodoCommunity.Community> communities = new ArrayList<>();
+            for (String slug : slugs) {
+                ZenodoCommunity.Community community = new ZenodoCommunity.Community();
+                community.setId(slug);
+                communities.add(community);
+            }
 
             ZenodoCommunity zenodoCommunity = new ZenodoCommunity();
-            zenodoCommunity.setCommunities(List.of(community));
+            zenodoCommunity.setCommunities(communities);
 
             try {
                 var links = (LinkedHashMap<String, String>) publishResponse.getOrDefault(ZENODO_LINKS, null);
@@ -301,7 +439,7 @@ public class ZenodoDepositServiceImpl implements ZenodoDepositService {
                                         mono.createException().flatMap(Mono::error) :
                                         mono.bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})).block();
             } catch (Exception e) {
-                logger.warn("Failed to add community entry '{}': {}", communityId, e.getMessage());
+                logger.warn("Failed to add community entries '{}': {}", slugs, e.getMessage());
             }
         }
     }

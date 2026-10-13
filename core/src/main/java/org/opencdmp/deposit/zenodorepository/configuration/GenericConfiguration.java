@@ -8,6 +8,6 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Configuration;
 
 @Configuration
-@EnableConfigurationProperties({PidProperties.class, FunderProperties.class, SemanticsProperties.class, ProgrammingLanguagesProperties.class})
+@EnableConfigurationProperties({PidProperties.class, FunderProperties.class, SemanticsProperties.class, ProgrammingLanguagesProperties.class, org.opencdmp.deposit.zenodorepository.configuration.preview.PreviewExtraFieldsProperties.class})
 public class GenericConfiguration {
 }

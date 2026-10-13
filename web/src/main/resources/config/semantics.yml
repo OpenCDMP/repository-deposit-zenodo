@@ -21,6 +21,8 @@ semantics:
     - zenodo.related_identifiers.isCompiledBy
     - zenodo.related_identifiers.compiles
     - zenodo.related_identifiers.isVariantFormOf
+    - zenodo.related_identifiers.isOriginalFormOf
+    # legacy misspelling, kept so templates that already carry it keep exporting
     - zenodo.related_identifiers.isOriginalFormof
     - zenodo.related_identifiers.isIdenticalTo
     - zenodo.related_identifiers.isAlternateIdentifier
@@ -69,6 +71,8 @@ semantics:
     - zenodo.date_type.valid
     - zenodo.date_type.withdrawn
   alternate-identifiers-scheme:
+    - zenodo.alternate-identifiers.scheme.ark
+    # legacy misspelling, kept so templates that already carry it keep exporting
     - zenodo.alternate.scheme.ark
     - zenodo.alternate-identifiers.scheme.arxiv
     - zenodo.alternate-identifiers.scheme.ads
@@ -92,10 +96,3 @@ semantics:
     - zenodo.alternate-identifiers.scheme.urn
     - zenodo.alternate-identifiers.scheme.w3id
     - zenodo.alternate-identifiers.scheme.other
-  conference:
-    - zenodo.conference.title
-    - zenodo.conference.acronym
-    - zenodo.conference.dates
-    - zenodo.conference.website
-    - zenodo.conference.session
-    - zenodo.conference.part

@@ -49,10 +49,23 @@ public class ZenodoDepositMetadata {
     @JsonProperty("additional_titles")
     private List<ZenodoAdditionalTitle> additionalTitles;
 
+    @JsonProperty("additional_descriptions")
+    private List<ZenodoAdditionalDescription> additionalDescriptions;
+
     private List<ZenodoReference> references;
+
+    private String copyright;
 
     public String getTitle() {
         return title;
+    }
+
+    public String getCopyright() {
+        return copyright;
+    }
+
+    public void setCopyright(String copyright) {
+        this.copyright = copyright;
     }
 
     public void setTitle(String title) {
@@ -179,6 +192,14 @@ public class ZenodoDepositMetadata {
 
     public void setAdditionalTitles(List<ZenodoAdditionalTitle> additionalTitles) {
         this.additionalTitles = additionalTitles;
+    }
+
+    public List<ZenodoAdditionalDescription> getAdditionalDescriptions() {
+        return additionalDescriptions;
+    }
+
+    public void setAdditionalDescriptions(List<ZenodoAdditionalDescription> additionalDescriptions) {
+        this.additionalDescriptions = additionalDescriptions;
     }
 
     public List<ZenodoReference> getReferences() {
