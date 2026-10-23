@@ -18,6 +18,7 @@ public class ZenodoLicense {
 
     private String link;
 
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     public static class Title {
         private String en;
 
@@ -30,6 +31,7 @@ public class ZenodoLicense {
         }
     }
 
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     public static class Description {
         private String en;
 

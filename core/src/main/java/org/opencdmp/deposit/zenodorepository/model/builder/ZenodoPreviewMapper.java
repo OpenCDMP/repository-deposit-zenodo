@@ -154,6 +154,9 @@ public class ZenodoPreviewMapper {
             FIELD_COPYRIGHT, "copyright");
     private static final String SETTING_ADDITIONAL_COMMUNITIES = "additional-communities";
 
+    private static final List<String> ORCID_PREFIXES = List.of("https://orcid.org/", "http://orcid.org/");
+    private static final List<String> ROR_PREFIXES = List.of("https://ror.org/", "http://ror.org/", "ror.org/");
+
     private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd").withZone(ZoneOffset.UTC);
 
     private static final List<PreviewFieldOption> LICENSE_OPTIONS = List.of(
@@ -213,6 +216,7 @@ public class ZenodoPreviewMapper {
             new PreviewFieldOption("arXiv", "arxiv"),
             new PreviewFieldOption("ADS", "ads"),
             new PreviewFieldOption("Crossref Funder ID", "crossreffunderid"),
+            new PreviewFieldOption("CSTR", "cstr"),
             new PreviewFieldOption("DOI", "doi"),
             new PreviewFieldOption("EAN13", "ean13"),
             new PreviewFieldOption("eISSN", "eissn"),
@@ -227,10 +231,12 @@ public class ZenodoPreviewMapper {
             new PreviewFieldOption("LSID", "lsid"),
             new PreviewFieldOption("PMID", "pmid"),
             new PreviewFieldOption("PURL", "purl"),
+            new PreviewFieldOption("RRID", "rrid"),
             new PreviewFieldOption("UPC", "upc"),
             new PreviewFieldOption("URL", "url"),
             new PreviewFieldOption("URN", "urn"),
             new PreviewFieldOption("W3ID", "w3id"),
+            new PreviewFieldOption("Wikidata", "wikidata"),
             new PreviewFieldOption("Other", "other"));
 
     // mirrors programming-languages.yml development-status
@@ -359,7 +365,9 @@ public class ZenodoPreviewMapper {
         PreviewField orcid = this.buildTemplateField(ITEM_ORCID, "ORCID", PreviewFieldType.Text);
         orcid.setWidgetHint(WIDGET_PID);
         fields.add(orcid);
-        fields.add(this.buildTemplateField(ITEM_AFFILIATION, "Affiliation", PreviewFieldType.Text));
+        PreviewField affiliation = this.buildTemplateField(ITEM_AFFILIATION, "Affiliation", PreviewFieldType.Text);
+        affiliation.setVocabSearch(true);
+        fields.add(affiliation);
         if (withRole) {
             PreviewField role = this.buildTemplateField(ITEM_ROLE, "Role", PreviewFieldType.Select);
             role.setOptions(ROLE_OPTIONS);
@@ -398,7 +406,7 @@ public class ZenodoPreviewMapper {
         PreviewField funderName = this.buildTemplateField(ITEM_FUNDER_NAME, "Funder", PreviewFieldType.Text);
         funderName.setVocabSearch(true);
         fields.add(funderName);
-        PreviewField funderId = this.buildTemplateField(ITEM_FUNDER_ID, "Funder identifier (ROR / DOI)", PreviewFieldType.Text);
+        PreviewField funderId = this.buildTemplateField(ITEM_FUNDER_ID, "Funder identifier (ROR)", PreviewFieldType.Text);
         funderId.setWidgetHint(WIDGET_PID);
         fields.add(funderId);
         PreviewField awardTitle = this.buildTemplateField(ITEM_AWARD_TITLE, "Award title", PreviewFieldType.Text);
@@ -437,7 +445,9 @@ public class ZenodoPreviewMapper {
         PreviewField titleType = this.buildTemplateField(ITEM_ADDITIONAL_TITLE_TYPE, "Type", PreviewFieldType.Select);
         titleType.setOptions(TITLE_TYPE_OPTIONS);
         fields.add(titleType);
-        fields.add(this.buildTemplateField(ITEM_ADDITIONAL_TITLE_LANG, "Language (ISO 639-3)", PreviewFieldType.Text));
+        PreviewField titleLanguage = this.buildTemplateField(ITEM_ADDITIONAL_TITLE_LANG, "Language (ISO 639-3)", PreviewFieldType.Text);
+        titleLanguage.setVocabSearch(true);
+        fields.add(titleLanguage);
 
         List<PreviewGroupItemModel> items = new ArrayList<>();
         List<ZenodoAdditionalTitle> additionalTitles = deposit.getMetadata() != null ? deposit.getMetadata().getAdditionalTitles() : null;
@@ -593,8 +603,9 @@ public class ZenodoPreviewMapper {
         fields.add(this.buildField(FIELD_SOFTWARE_REPOSITORY_URL, "Repository URL", PreviewFieldType.Text, PreviewFieldSource.Mapped, false,
                 () -> this.textValue(FIELD_SOFTWARE_REPOSITORY_URL, customFields != null ? customFields.getCodeRepository() : null)));
 
-        PreviewField programmingLanguage = this.buildField(FIELD_SOFTWARE_PROGRAMMING_LANGUAGE, "Programming language", PreviewFieldType.Select, PreviewFieldSource.Mapped, false,
-                () -> this.textValue(FIELD_SOFTWARE_PROGRAMMING_LANGUAGE, this.firstProgrammingLanguageId(customFields)));
+        PreviewField programmingLanguage = this.buildField(FIELD_SOFTWARE_PROGRAMMING_LANGUAGE, "Programming languages", PreviewFieldType.Select, PreviewFieldSource.Mapped, false,
+                () -> this.textListValue(FIELD_SOFTWARE_PROGRAMMING_LANGUAGE, this.programmingLanguageIds(customFields)));
+        programmingLanguage.setMultipleSelect(true);
         programmingLanguage.setVocabSearch(true);
         fields.add(programmingLanguage);
 
@@ -813,6 +824,7 @@ public class ZenodoPreviewMapper {
                     }
                     embargo.setActive(true);
                     embargo.setUntil(DATE_FORMAT.format(value.getDateValue()));
+                    deposit.getAccess().setFiles(ZenodoAccessRight.RESTRICTED);
                 }
             }
             case FIELD_EMBARGO_REASON -> {
@@ -869,10 +881,15 @@ public class ZenodoPreviewMapper {
             case FIELD_CONFERENCE_WEBSITE -> { if (this.hasText(value)) this.conference(deposit).setUrl(value.getTextValue()); }
             case FIELD_SOFTWARE_REPOSITORY_URL -> { if (this.hasText(value)) this.customFields(deposit).setCodeRepository(value.getTextValue()); }
             case FIELD_SOFTWARE_PROGRAMMING_LANGUAGE -> {
-                if (this.hasText(value)) {
-                    ZenodoDepositCustomFields.Code code = new ZenodoDepositCustomFields.Code();
-                    code.setId(value.getTextValue());
-                    this.customFields(deposit).setCodeProgrammingLanguage(List.of(code));
+                List<String> ids = this.textListOrSingle(value);
+                if (ids != null) {
+                    List<ZenodoDepositCustomFields.Code> codes = new ArrayList<>();
+                    for (String id : ids) {
+                        ZenodoDepositCustomFields.Code code = new ZenodoDepositCustomFields.Code();
+                        code.setId(id);
+                        codes.add(code);
+                    }
+                    this.customFields(deposit).setCodeProgrammingLanguage(codes.isEmpty() ? null : codes);
                 }
             }
             case FIELD_SOFTWARE_DEVELOPMENT_STATUS -> {
@@ -963,7 +980,7 @@ public class ZenodoPreviewMapper {
             String givenName = this.itemText(item, ITEM_GIVEN_NAME);
             String familyName = this.itemText(item, ITEM_FAMILY_NAME);
             String name = this.itemText(item, ITEM_NAME);
-            String orcid = this.itemText(item, ITEM_ORCID);
+            String orcid = this.stripPrefix(this.itemText(item, ITEM_ORCID), ORCID_PREFIXES);
             String affiliation = this.itemText(item, ITEM_AFFILIATION);
             if (givenName == null && familyName == null && name == null) continue;
 
@@ -998,7 +1015,7 @@ public class ZenodoPreviewMapper {
         for (PreviewGroupItemModel item : items) {
             if (item == null || item.getValues() == null) continue;
             String funderName = this.itemText(item, ITEM_FUNDER_NAME);
-            String funderId = this.itemText(item, ITEM_FUNDER_ID);
+            String funderId = this.stripPrefix(this.itemText(item, ITEM_FUNDER_ID), ROR_PREFIXES);
             String awardTitle = this.itemText(item, ITEM_AWARD_TITLE);
             String awardNumber = this.itemText(item, ITEM_AWARD_NUMBER);
             if (funderName == null && funderId == null) continue;
@@ -1122,10 +1139,22 @@ public class ZenodoPreviewMapper {
         return labels;
     }
 
-    private String firstProgrammingLanguageId(ZenodoDepositCustomFields customFields) {
-        if (customFields == null || customFields.getCodeProgrammingLanguage() == null || customFields.getCodeProgrammingLanguage().isEmpty()) return null;
-        ZenodoDepositCustomFields.Code code = customFields.getCodeProgrammingLanguage().getFirst();
-        return code != null ? code.getId() : null;
+    private List<String> programmingLanguageIds(ZenodoDepositCustomFields customFields) {
+        if (customFields == null || customFields.getCodeProgrammingLanguage() == null) return null;
+        List<String> ids = new ArrayList<>();
+        for (ZenodoDepositCustomFields.Code code : customFields.getCodeProgrammingLanguage()) {
+            if (code != null && code.getId() != null && !code.getId().isBlank()) ids.add(code.getId());
+        }
+        return ids;
+    }
+
+    private String stripPrefix(String value, List<String> prefixes) {
+        if (value == null) return null;
+        String trimmed = value.trim();
+        for (String prefix : prefixes) {
+            if (trimmed.regionMatches(true, 0, prefix, 0, prefix.length())) return trimmed.substring(prefix.length());
+        }
+        return trimmed;
     }
 
     private String itemText(PreviewGroupItemModel item, String code) {

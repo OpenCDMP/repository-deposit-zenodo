@@ -14,6 +14,7 @@ public class ZenodoAdditionalTitle {
 
     private Language lang;
 
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     public static class Type {
         private ZenodoAdditionalTitleIdType id;
 
@@ -27,6 +28,7 @@ public class ZenodoAdditionalTitle {
 
     }
 
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     public static class Language {
         private String id;
 

@@ -2,6 +2,7 @@ package org.opencdmp.deposit.zenodorepository.service.zenodo;
 
 import org.opencdmp.commonmodels.models.deposit.DepositPreviewModel;
 import org.opencdmp.commonmodels.models.deposit.PreviewFieldOption;
+import org.opencdmp.depositbase.repository.DepositAccount;
 import org.opencdmp.depositbase.repository.DepositConfiguration;
 import org.opencdmp.depositbase.repository.PlanDepositModel;
 
@@ -15,6 +16,8 @@ public interface ZenodoDepositService {
 	List<PreviewFieldOption> searchVocabulary(String fieldCode, String like);
 
 	DepositConfiguration getConfiguration();
+
+	DepositAccount account(PlanDepositModel planDepositModel);
 
 	String authenticate(String code);
 

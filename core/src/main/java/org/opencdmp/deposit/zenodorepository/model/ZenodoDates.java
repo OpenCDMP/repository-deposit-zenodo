@@ -14,12 +14,14 @@ public class ZenodoDates {
     private String description;
 
 
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     public static class Type {
         private String id;
 
         private Title title;
 
 
+        @JsonInclude(JsonInclude.Include.NON_NULL)
         public static class Title {
             private String en;
 

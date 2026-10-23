@@ -52,6 +52,7 @@ public class ZenodoCreator {
         private String type;
         private List<Identifier> identifiers;
 
+        @JsonInclude(JsonInclude.Include.NON_NULL)
         public static class Identifier {
             private String identifier;
             private String scheme;

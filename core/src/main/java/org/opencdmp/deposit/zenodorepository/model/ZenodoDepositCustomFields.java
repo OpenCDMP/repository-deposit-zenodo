@@ -108,6 +108,7 @@ public class ZenodoDepositCustomFields {
         this.codeDevelopmentStatus = codeDevelopmentStatus;
     }
 
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     public static class Journal {
         private String title;
 
@@ -160,6 +161,7 @@ public class ZenodoDepositCustomFields {
         }
     }
 
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     public static class Imprint {
 
         private String title;
@@ -213,6 +215,7 @@ public class ZenodoDepositCustomFields {
         }
     }
 
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     public static class Conference {
         private String title;
 
@@ -287,6 +290,7 @@ public class ZenodoDepositCustomFields {
     }
 
     /** The thesis:thesis nested custom field (InvenioRDM replaced the flat thesis:university with this object). */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     public static class Thesis {
 
         private String university;
@@ -342,6 +346,7 @@ public class ZenodoDepositCustomFields {
         }
     }
 
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     public static class Code {
         private String id;
 

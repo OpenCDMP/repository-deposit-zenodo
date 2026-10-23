@@ -1,5 +1,7 @@
 package org.opencdmp.deposit.zenodorepository.model;
 
+import java.util.Map;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -30,6 +32,7 @@ public class ZenodoFunding {
         this.grant = grant;
     }
 
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     public static class Funder {
         private String id;
 
@@ -52,6 +55,7 @@ public class ZenodoFunding {
         }
     }
 
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     public static class Grant {
         private String id;
 
@@ -69,8 +73,15 @@ public class ZenodoFunding {
             this.id = id;
         }
 
+        @JsonIgnore
         public String getTitle() {
             return title;
+        }
+
+        /** The award title as InvenioRDM takes it, by language. */
+        @JsonProperty("title")
+        public Map<String, String> getTitleByLanguage() {
+            return title != null && !title.isBlank() ? Map.of("en", title) : null;
         }
 
         public void setTitle(String title) {
@@ -93,6 +104,7 @@ public class ZenodoFunding {
             this.identifiers = identifiers;
         }
 
+        @JsonInclude(JsonInclude.Include.NON_NULL)
         public static class Identifier {
             private String identifier;
 

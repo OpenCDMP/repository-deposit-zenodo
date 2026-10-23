@@ -73,6 +73,12 @@ For each deposit, the service uses the first of these Zenodo tokens that is set:
 
 OpenCDMP decides which accounts a user may publish under, and never falls back to the organisation's or the installation's account when a user chose their own. See [Publishing accounts and files](https://opencdmp.github.io/optional-services/deposit-services/#publishing-accounts-and-files).
 
+### The account a deposit used
+
+Zenodo accepts a new version of a record only from the account that owns it. After a deposit under a user's own account, OpenCDMP calls `POST /api/deposit/account` with the same credentials, and the service reads the token's Zenodo user from `GET <DEPOSIT_ZENODO_URL>me`. It returns the user's id and a name to show: the full name, otherwise the username, with the email when Zenodo returns one. OpenCDMP keeps them with the plan's DOI and names that account when a later version is published. It never asks for the organisation's account, so that account's Zenodo identity is not stored or shown to users.
+
+The sign-in asks for the `user:email` scope; a personal access token without it may give no email, and then only the full name or username is shown. The service returns nothing when Zenodo does not answer, and the deposit is not affected.
+
 ## Register with OpenCDMP
 
 Register the service for the whole installation in the configuration of the API service, or for one organisation under **Settings > Plugins > Add plugin**. Use the plugin id `zenodo`, and register a PDF and an RDA JSON transformer with it. See [Registering plugin services](https://opencdmp.github.io/deployment/configuration/plugin-services/) and [Organisation plugins](https://opencdmp.github.io/administering/tenant-management/plugins/).
@@ -86,6 +92,7 @@ All endpoints are under `/api/deposit`. They accept only a Bearer token from the
 | `POST /api/deposit` | Deposit a plan and return its DOI |
 | `POST /api/deposit/preview` | Return the metadata that would be deposited, as an editable form |
 | `GET /api/deposit/vocab/{fieldCode}?like=` | Search the vocabulary behind a review field |
+| `POST /api/deposit/account` | Return the Zenodo account that a deposit's credentials belong to (see [The account a deposit used](#the-account-a-deposit-used)) |
 | `GET /api/deposit/authenticate?authToken=` | Exchange a Zenodo OAuth 2.0 authorization code for an access token |
 | `GET /api/deposit/configuration` | Return the service's `DepositConfiguration` |
 | `GET /api/deposit/logo` | Return the Zenodo logo, Base64-encoded |

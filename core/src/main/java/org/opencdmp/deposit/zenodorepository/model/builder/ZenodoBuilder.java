@@ -52,6 +52,7 @@ public class ZenodoBuilder {
     private static final LoggerService logger = new LoggerService(LoggerFactory.getLogger(ZenodoDepositServiceImpl.class));
 
     private static final String IS_IDENTICAL_TO = "isidenticalto";
+    private static final String RELATION_IS_ALTERNATE_IDENTIFIER = "isalternateidentifier";
     private static final String RELATED_IDENTIFIER_SCHEME_URL = "url";
     private static final String RELATED_IDENTIFIER_SCHEME_OTHER = "other";
     private static final String CONTRIBUTOR_TYPE_RESEARCHER = "researcher";
@@ -212,6 +213,8 @@ public class ZenodoBuilder {
                 if (publicationDate.isBefore(Instant.now())) {
                     access.setFiles(ZenodoAccessRight.PUBLIC);
                 } else {
+                    // the files stay restricted until the embargo lifts
+                    access.setFiles(ZenodoAccessRight.RESTRICTED);
                     embargo.setActive(true);
                     embargo.setUntil(DateTimeFormatter.ofPattern("yyyy-MM-dd").withZone(ZoneId.systemDefault()).format(publicationDate));
                 }
@@ -464,6 +467,17 @@ public class ZenodoBuilder {
             }
 
         }
+        // InvenioRDM has no "isalternateidentifier" relation: those values are the record's alternate identifiers
+        List<ZenodoAlternateIdentifiers> alternateIdentifiers = new ArrayList<>();
+        relatedIdentifiers.removeIf(relator -> {
+            if (relator.getRelationType() == null || !RELATION_IS_ALTERNATE_IDENTIFIER.equals(relator.getRelationType().getId())) return false;
+            ZenodoAlternateIdentifiers alternateIdentifier = new ZenodoAlternateIdentifiers();
+            alternateIdentifier.setIdentifier(relator.getIdentifier());
+            alternateIdentifier.setScheme(relator.getScheme());
+            alternateIdentifiers.add(alternateIdentifier);
+            return true;
+        });
+        if (!alternateIdentifiers.isEmpty()) deposit.getMetadata().setAlternateIdentifiers(alternateIdentifiers);
         deposit.getMetadata().setRelatedIdentifiers(relatedIdentifiers);
     }
 
@@ -945,7 +959,7 @@ public class ZenodoBuilder {
         if (deposit.getMetadata() == null) deposit.setMetadata(new ZenodoDepositMetadata());
 
         List<String> acceptedSchemes = this.semanticsProperties.getAlternateIdentifiersScheme();
-        List<ZenodoAlternateIdentifiers> alternateIdentifiers = new ArrayList<>();
+        List<ZenodoAlternateIdentifiers> alternateIdentifiers = deposit.getMetadata().getAlternateIdentifiers() != null ? new ArrayList<>(deposit.getMetadata().getAlternateIdentifiers()) : new ArrayList<>();
 
         for(String scheme : acceptedSchemes){
             List<String> results = this.applyListValue(planModel, scheme);

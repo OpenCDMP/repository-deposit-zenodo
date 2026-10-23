@@ -19,6 +19,7 @@ public class ZenodoCommunity {
         this.communities = communities;
     }
 
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     public static class Community {
         private String id;
 
