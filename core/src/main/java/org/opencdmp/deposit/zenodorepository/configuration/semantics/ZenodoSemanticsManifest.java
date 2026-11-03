@@ -22,7 +22,9 @@ import java.util.Objects;
  * Every value is "can use": the deposit always writes the title, resource type, publisher, publication date,
  * description and creators from the plan and its configuration, so nothing a template or blueprint leaves out breaks
  * it. Keys are read from blueprint and template inputs alike, except the contributor names and the licence link, which
- * are read from the fields of the plan's researcher and licence references. A select or radio input gives the value of
+ * are read from the plan's researcher and licence references. A reference input without the key of its own still answers
+ * it when its reference type gives the key to the picked references' id, name, description or one of its fields: each
+ * picked reference gives that value. A select or radio input gives the value of
  * the chosen option (its label only when the option has no value), so choice keys match on option values. The journal,
  * imprint and conference objects are written only when at least one of their values is answered.
  */
@@ -103,8 +105,9 @@ public final class ZenodoSemanticsManifest {
         List<String> relatedIdentifiers = values(semantics == null ? null : semantics.getRelatedIdentifiers());
         if (relatedIdentifiers != null) {
             SemanticKeyUsage usage = new SemanticKeyUsage(relatedIdentifiers, false, SemanticKeyLevel.CanUse, PLAN_AND_DESCRIPTION, "Related identifier",
-                    "Added to the related identifiers, one per answer, with the key's last part as the relation; put a scheme key on the same input. From a reference input, an organisation or researcher gives its reference id, and any other reference gives its PID when the PID type is an accepted one and its reference id otherwise; an answer with several references still gives one identifier. An empty answer is skipped.", "metadata.related_identifiers[]");
+                    "Added to the related identifiers, one per answer, with the key's last part as the relation; put a scheme key on the same input. From a reference input, an organisation or researcher gives its reference id, and any other reference gives its PID when the PID type is an accepted one and its reference id otherwise; an answer with several references still gives one identifier. A reference input that gets the key only through its reference type gives one identifier per picked reference, with the scheme key its type carries. An empty answer is skipped.", "metadata.related_identifiers[]");
             usage.setMultiple(true);
+            usage.setFromReferenceFields(true);
             usages.add(usage);
         }
 
@@ -113,6 +116,7 @@ public final class ZenodoSemanticsManifest {
             SemanticKeyUsage usage = new SemanticKeyUsage(relatedIdentifierSchemes, false, SemanticKeyLevel.CanUse, PLAN_AND_DESCRIPTION, "Related identifier › Scheme",
                     "Carried by a related identifier input: the scheme is the last part of the scheme key; without it the scheme is other.", "metadata.related_identifiers[].scheme");
             usage.setMultiple(true);
+            usage.setFromReferenceFields(true);
             usage.setFallback("other");
             usages.add(usage);
         }
@@ -123,6 +127,7 @@ public final class ZenodoSemanticsManifest {
                     "Added to the dates of the deposit, with the key's last part as the type; a value that is not a yyyy-MM-dd or yyyy/MM/dd date is dropped.", "metadata.dates[]");
             usage.setFormat(SemanticValueFormat.Date);
             usage.setMultiple(true);
+            usage.setFromReferenceFields(true);
             usages.add(usage);
         }
 
@@ -132,6 +137,7 @@ public final class ZenodoSemanticsManifest {
                     "Added to the alternate identifiers of the deposit, with the key's last part as the scheme.", "metadata.identifiers[]");
             usage.setFormat(SemanticValueFormat.Text);
             usage.setMultiple(true);
+            usage.setFromReferenceFields(true);
             usages.add(usage);
         }
 
@@ -159,6 +165,8 @@ public final class ZenodoSemanticsManifest {
         SemanticKeyUsage usage = new SemanticKeyUsage(List.of(key), false, SemanticKeyLevel.CanUse, PLAN_AND_DESCRIPTION, label, purpose, target);
         usage.setFormat(format);
         usage.setMultiple(multiple);
+        // read through the reference type of a reference input too
+        usage.setFromReferenceFields(true);
         return usage;
     }
 
@@ -171,7 +179,7 @@ public final class ZenodoSemanticsManifest {
         return usage;
     }
 
-    /** A key matched on a reference type's own field definitions, read from the plan's references only. */
+    /** A key matched on a reference type's id, name, description or own fields, read from the plan's references only. */
     private static SemanticKeyUsage referenceField(String key, String label, String purpose, String target) {
         SemanticKeyUsage usage = new SemanticKeyUsage(List.of(key), false, SemanticKeyLevel.CanUse, PLAN, label, purpose, target);
         usage.setFormat(SemanticValueFormat.Text);

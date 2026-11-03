@@ -8,6 +8,7 @@ import org.opencdmp.commonmodels.models.PlanUserModel;
 import org.opencdmp.commonmodels.models.description.*;
 import org.opencdmp.commonmodels.models.planblueprintdescriptiontemplatefields.FieldSetModel;
 import org.opencdmp.commonmodels.models.planblueprintdescriptiontemplatefields.fielddata.RadioBoxDataModel;
+import org.opencdmp.commonmodels.models.planblueprintdescriptiontemplatefields.fielddata.ReferenceTypeDataModel;
 import org.opencdmp.commonmodels.models.planblueprintdescriptiontemplatefields.fielddata.SelectDataModel;
 import org.opencdmp.commonmodels.models.plan.PlanModel;
 import org.opencdmp.commonmodels.models.plandescriptionfields.FieldModel;
@@ -16,7 +17,6 @@ import org.opencdmp.commonmodels.models.plandescriptionfields.PropertyDefinition
 import org.opencdmp.commonmodels.models.planreference.PlanReferenceModel;
 import org.opencdmp.commonmodels.models.reference.ReferenceFieldModel;
 import org.opencdmp.commonmodels.models.reference.ReferenceModel;
-import org.opencdmp.commonmodels.models.referencetype.ReferenceTypeFieldModel;
 import org.opencdmp.deposit.zenodorepository.configuration.funder.FunderProperties;
 import org.opencdmp.deposit.zenodorepository.configuration.pid.PidProperties;
 import org.opencdmp.deposit.zenodorepository.configuration.programminglanguages.ProgrammingLanguagesProperties;
@@ -137,14 +137,14 @@ public class ZenodoBuilder {
 
         String semantic = SEMANTIC_COMMUNITY;
         List<org.opencdmp.commonmodels.models.planblueprintdescriptiontemplatefields.FieldModel> fieldsWithSemantics = this.findSchematicValues(semantic, planModel.getPlanBlueprint().getDefinition().getAllField());
-        Set<String> values = extractSchematicValues(fieldsWithSemantics, planModel.getProperties().getFieldSets());
+        Set<String> values = extractSchematicValues(fieldsWithSemantics, planModel.getProperties().getFieldSets(), semantic);
         String value = values.stream().findFirst().orElse(null);
         if (value != null) return value;
 
         //description template
         for (DescriptionModel descriptionModel: planModel.getDescriptions()) {
             fieldsWithSemantics = this.findSchematicValues(semantic, descriptionModel.getDescriptionTemplate().getDefinition().getAllField());
-            values = extractSchematicValues(fieldsWithSemantics, descriptionModel.getProperties().getFieldSets());
+            values = extractSchematicValues(fieldsWithSemantics, descriptionModel.getProperties().getFieldSets(), semantic);
             value = values.stream().findFirst().orElse(null);
             if (value != null) return value;
         }
@@ -227,7 +227,7 @@ public class ZenodoBuilder {
         deposit.setAccess(access);
     }
 
-    private Set<String> extractSchematicValues(List<org.opencdmp.commonmodels.models.planblueprintdescriptiontemplatefields.FieldModel> fields, Map<String, PropertyDefinitionFieldSetModel> fieldSets) {
+    private Set<String> extractSchematicValues(List<org.opencdmp.commonmodels.models.planblueprintdescriptiontemplatefields.FieldModel> fields, Map<String, PropertyDefinitionFieldSetModel> fieldSets, String semantic) {
         Set<String> values = new LinkedHashSet<>();
         for (org.opencdmp.commonmodels.models.planblueprintdescriptiontemplatefields.FieldModel field : fields) {
             if (field.getData() == null) continue;
@@ -283,7 +283,8 @@ public class ZenodoBuilder {
                         }
                     }
                     case REFERENCE_TYPES -> {
-                        if (valueField.getReferences() != null && !valueField.getReferences().isEmpty()) {
+                        if (this.keyFromReferenceType(field, semantic)) values.addAll(this.referenceTypeValues(field, valueField, semantic));
+                        else if (valueField.getReferences() != null && !valueField.getReferences().isEmpty()) {
                             for (ReferenceModel referenceModel : valueField.getReferences()) {
                                 if (referenceModel == null
                                         || referenceModel.getType() == null || referenceModel.getType().getCode() == null || referenceModel.getType().getCode().isBlank()
@@ -300,7 +301,7 @@ public class ZenodoBuilder {
         return values;
     }
 
-    private String extractSchematicSingleValue(org.opencdmp.commonmodels.models.planblueprintdescriptiontemplatefields.FieldModel field, org.opencdmp.commonmodels.models.plandescriptionfields.FieldModel valueField) {
+    private String extractSchematicSingleValue(org.opencdmp.commonmodels.models.planblueprintdescriptiontemplatefields.FieldModel field, org.opencdmp.commonmodels.models.plandescriptionfields.FieldModel valueField, String semantic) {
         if (field == null || field.getData() == null) return null;
 
         switch (field.getData().getFieldType()) {
@@ -347,6 +348,7 @@ public class ZenodoBuilder {
                 }
             }
             case REFERENCE_TYPES -> {
+                if (this.keyFromReferenceType(field, semantic)) return this.referenceTypeValues(field, valueField, semantic).stream().findFirst().orElse(null);
                 if (valueField.getReferences() != null && !valueField.getReferences().isEmpty()) {
                     for (ReferenceModel referenceModel : valueField.getReferences()) {
                         if (referenceModel == null
@@ -364,7 +366,26 @@ public class ZenodoBuilder {
     }
 
     private List<org.opencdmp.commonmodels.models.planblueprintdescriptiontemplatefields.FieldModel> findSchematicValues(String relatedId, List<org.opencdmp.commonmodels.models.planblueprintdescriptiontemplatefields.FieldModel> fields){
-        return fields.stream().filter(x-> x.getSemantics() != null && x.getSemantics().contains(relatedId)).toList();
+        List<org.opencdmp.commonmodels.models.planblueprintdescriptiontemplatefields.FieldModel> found = new ArrayList<>(fields.stream().filter(x-> x.getSemantics() != null && x.getSemantics().contains(relatedId)).toList());
+        // own keys first, then the reference inputs whose type gives the picked references the key
+        found.addAll(fields.stream().filter(x -> !found.contains(x) && ReferenceSemantics.carries(x, relatedId)).toList());
+        return found;
+    }
+
+    /** Does the reference input answer the key only through its reference type, not through a key of its own? */
+    private boolean keyFromReferenceType(org.opencdmp.commonmodels.models.planblueprintdescriptiontemplatefields.FieldModel field, String semantic) {
+        return (field.getSemantics() == null || !field.getSemantics().contains(semantic)) && ReferenceSemantics.carries(field, semantic);
+    }
+
+    /** The values the picked references give the key through the input's reference type, one per picked reference. */
+    private List<String> referenceTypeValues(org.opencdmp.commonmodels.models.planblueprintdescriptiontemplatefields.FieldModel field, FieldModel valueField, String semantic) {
+        List<String> values = new ArrayList<>();
+        if (valueField == null || valueField.getReferences() == null || !(field.getData() instanceof ReferenceTypeDataModel data)) return values;
+        for (ReferenceModel referenceModel : valueField.getReferences()) {
+            String value = ReferenceSemantics.value(referenceModel, data.getReferenceType(), semantic);
+            if (value != null) values.add(value);
+        }
+        return values;
     }
 
     private List<FieldModel> findValueFieldsByIds(String fieldId, Map<String, PropertyDefinitionFieldSetModel> fieldSets){
@@ -390,10 +411,20 @@ public class ZenodoBuilder {
         for (org.opencdmp.commonmodels.models.planblueprintdescriptiontemplatefields.FieldModel field : fields) {
             if (field.getData() == null) continue;
             List<FieldModel> valueFields = this.findValueFieldsByIds(field.getId(), fieldSets);
+            boolean fromType = this.keyFromReferenceType(field, relatedId);
             for (FieldModel valueField : valueFields) {
+                // the key comes through the reference type: one relator per picked reference
+                if (fromType) {
+                    for (String identifier : this.referenceTypeValues(field, valueField, relatedId)) {
+                        ZenodoRelator zenodoRelator = new ZenodoRelator();
+                        zenodoRelator.setIdentifier(identifier);
+                        relatedIdentifier.add(this.completeZenodoRelator(zenodoRelator, field, relatedId, true));
+                    }
+                    continue;
+                }
                 // one relator per answer, so every answer keeps its own identifier
                 ZenodoRelator zenodoRelator = new ZenodoRelator();
-                zenodoRelator.setIdentifier(this.extractSchematicSingleValue(field, valueField));
+                zenodoRelator.setIdentifier(this.extractSchematicSingleValue(field, valueField, relatedId));
                 switch (field.getData().getFieldType()) {
                     case REFERENCE_TYPES -> {
                         if (valueField.getReferences() != null && !valueField.getReferences().isEmpty()) {
@@ -419,21 +450,27 @@ public class ZenodoBuilder {
 
                 if (zenodoRelator.getIdentifier() == null || zenodoRelator.getIdentifier().isBlank()) continue;
 
-                String scheme = field.getSemantics() != null && this.semanticsProperties.getRelatedIdentifiersScheme() != null
-                        ? field.getSemantics().stream().filter(this.semanticsProperties.getRelatedIdentifiersScheme() :: contains).findFirst().orElse(null)
-                        : null;
-                // the scheme is the last part of the scheme key, e.g. zenodo.related_identifiers.scheme.doi -> doi
-                if (scheme != null && scheme.lastIndexOf(".") < scheme.length() - 1) zenodoRelator.setScheme(scheme.substring(scheme.lastIndexOf(".") + 1).toLowerCase());
-                else zenodoRelator.setScheme(RELATED_IDENTIFIER_SCHEME_OTHER);
-
-                ZenodoRelator.RelationType relationType = new ZenodoRelator.RelationType();
-                relationType.setId(relatedId.toLowerCase().substring(relatedId.lastIndexOf(".") + 1));
-                zenodoRelator.setRelationType(relationType);
-
-                relatedIdentifier.add(zenodoRelator);
+                relatedIdentifier.add(this.completeZenodoRelator(zenodoRelator, field, relatedId, false));
             }
         }
         return relatedIdentifier;
+    }
+
+    private ZenodoRelator completeZenodoRelator(ZenodoRelator zenodoRelator, org.opencdmp.commonmodels.models.planblueprintdescriptiontemplatefields.FieldModel field, String relatedId, boolean fromType) {
+        List<String> schemes = this.semanticsProperties.getRelatedIdentifiersScheme();
+        String scheme = field.getSemantics() != null && schemes != null
+                ? field.getSemantics().stream().filter(schemes :: contains).findFirst().orElse(null)
+                : null;
+        // a reference input answering through its type, without a scheme key of its own, takes the one its type carries
+        if (scheme == null && fromType && schemes != null && field.getData() instanceof ReferenceTypeDataModel data) scheme = schemes.stream().filter(ReferenceSemantics.keys(data.getReferenceType())::contains).findFirst().orElse(null);
+        // the scheme is the last part of the scheme key, e.g. zenodo.related_identifiers.scheme.doi -> doi
+        if (scheme != null && scheme.lastIndexOf(".") < scheme.length() - 1) zenodoRelator.setScheme(scheme.substring(scheme.lastIndexOf(".") + 1).toLowerCase());
+        else zenodoRelator.setScheme(RELATED_IDENTIFIER_SCHEME_OTHER);
+
+        ZenodoRelator.RelationType relationType = new ZenodoRelator.RelationType();
+        relationType.setId(relatedId.toLowerCase().substring(relatedId.lastIndexOf(".") + 1));
+        zenodoRelator.setRelationType(relationType);
+        return zenodoRelator;
     }
     
     private List<ReferenceModel> getReferenceModelOfType(PlanModel plan, String code){
@@ -765,7 +802,7 @@ public class ZenodoBuilder {
 
         //plan blueprint semantics
         List<org.opencdmp.commonmodels.models.planblueprintdescriptiontemplatefields.FieldModel> fieldsWithSemantics = this.findSchematicValues(semanticCode, planModel.getPlanBlueprint().getDefinition().getAllField());
-        Set<String> values = extractSchematicValues(fieldsWithSemantics, planModel.getProperties().getFieldSets());
+        Set<String> values = extractSchematicValues(fieldsWithSemantics, planModel.getProperties().getFieldSets(), semanticCode);
 
         if (!values.isEmpty()) {
             fields.addAll(values.stream().toList());
@@ -775,7 +812,7 @@ public class ZenodoBuilder {
             //description template
             for (DescriptionModel descriptionModel: planModel.getDescriptions()) {
                 fieldsWithSemantics = this.findSchematicValues(semanticCode, descriptionModel.getDescriptionTemplate().getDefinition().getAllField());
-                values = extractSchematicValues(fieldsWithSemantics, descriptionModel.getProperties().getFieldSets());
+                values = extractSchematicValues(fieldsWithSemantics, descriptionModel.getProperties().getFieldSets(), semanticCode);
                 if (!values.isEmpty()) {
                     fields.addAll(values.stream().toList());
                 }
@@ -817,7 +854,7 @@ public class ZenodoBuilder {
             FieldModel fieldValue = this.findValueFieldBySemantic(fieldSet, propertyDefinitionFieldSetItemModel, SEMANTIC_ADDITIONAL_TITLE);
             if (fieldValue != null) {
                 FieldModel finalFieldValue = fieldValue;
-                String value = this.extractSchematicSingleValue(fieldModels.stream().filter(x-> x.getId().equals(finalFieldValue.getId())).findFirst().orElse(null), fieldValue);
+                String value = this.extractSchematicSingleValue(fieldModels.stream().filter(x-> x.getId().equals(finalFieldValue.getId())).findFirst().orElse(null), fieldValue, SEMANTIC_ADDITIONAL_TITLE);
                 if (value != null && !value.isBlank()) additionalTitle.setTitle(value);
             }
             // a type or language without a title is not an additional title
@@ -826,7 +863,7 @@ public class ZenodoBuilder {
             fieldValue = this.findValueFieldBySemantic(fieldSet, propertyDefinitionFieldSetItemModel, SEMANTIC_ADDITIONAL_TITLE_TYPE);
             if (fieldValue != null) {
                 FieldModel finalFieldValue1 = fieldValue;
-                String value = this.extractSchematicSingleValue(fieldModels.stream().filter(x-> x.getId().equals(finalFieldValue1.getId())).findFirst().orElse(null), fieldValue);
+                String value = this.extractSchematicSingleValue(fieldModels.stream().filter(x-> x.getId().equals(finalFieldValue1.getId())).findFirst().orElse(null), fieldValue, SEMANTIC_ADDITIONAL_TITLE_TYPE);
                 if (value != null && Arrays.stream(ZenodoAdditionalTitleIdType.values()).toList().stream().map(ZenodoAdditionalTitleIdType::getValue).toList().contains(value)) {
                     type.setId(ZenodoAdditionalTitleIdType.of(value));
                 } else {
@@ -841,7 +878,7 @@ public class ZenodoBuilder {
             fieldValue = this.findValueFieldBySemantic(fieldSet, propertyDefinitionFieldSetItemModel, SEMANTIC_ADDITIONAL_TITLE_LANGUAGE);
             if (fieldValue != null) {
                 FieldModel finalFieldValue = fieldValue;
-                String value = this.extractSchematicSingleValue(fieldModels.stream().filter(x-> x.getId().equals(finalFieldValue.getId())).findFirst().orElse(null), fieldValue);
+                String value = this.extractSchematicSingleValue(fieldModels.stream().filter(x-> x.getId().equals(finalFieldValue.getId())).findFirst().orElse(null), fieldValue, SEMANTIC_ADDITIONAL_TITLE_LANGUAGE);
                 if (value != null) {
                     ULocale locale = new ULocale(value);
                     if (locale.getISO3Language().equals(value)) {
@@ -1147,17 +1184,9 @@ public class ZenodoBuilder {
     }
 
     private String getReferenceFieldValueFromSemantic(ReferenceModel referenceModel, String semantic) {
-        if (referenceModel == null || referenceModel.getDefinition() == null ||referenceModel.getDefinition().getFields() == null || referenceModel.getDefinition().getFields().isEmpty()
-                || referenceModel.getType() == null || referenceModel.getType().getDefinition().getFields() == null || referenceModel.getType().getDefinition().getFields().isEmpty()
-                || semantic == null) return null;
-
-        ReferenceTypeFieldModel referenceTypeFieldModel = referenceModel.getType().getDefinition().getFields().stream().filter(x -> x.getSemantics() != null && !x.getSemantics().isEmpty() && x.getSemantics().contains(semantic)).findFirst().orElse(null);
-        if (referenceTypeFieldModel == null || referenceTypeFieldModel.getCode() == null) return null;
-
-        ReferenceFieldModel referenceFieldModel = referenceModel.getDefinition().getFields().stream().filter(x -> x.getCode() != null && x.getCode().equals(referenceTypeFieldModel.getCode())).findFirst().orElse(null);
-        if (referenceFieldModel == null) return null;
-
-        return referenceFieldModel.getValue();
+        if (referenceModel == null) return null;
+        // the type can give the key to the reference's id, name or description as well as to one of its fields
+        return ReferenceSemantics.value(referenceModel, referenceModel.getType(), semantic);
     }
 
 }
